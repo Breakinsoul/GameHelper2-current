@@ -1,0 +1,5 @@
+<Project>
+  <Target Name="DeleteCopiedPluginSymbols" AfterTargets="CopyFiles" Condition="'$(Configuration)'=='Release' and Exists('$(MSBuildProjectDirectory)\..\..\GameHelper')">
+    <Delete Files="$(MSBuildProjectDirectory)\..\..\GameHelper\$(OutDir)Plugins\$(ProjectName)\$(TargetName).pdb" ContinueOnError="WarnAndContinue" />
+  </Target>
+</Project>

@@ -1,0 +1,5 @@
+{
+  "repository": "Breakinsoul/GameHelper2-current",
+  "assetPattern": "^GameHelper.*\\.zip$",
+  "allowPrerelease": false
+}
