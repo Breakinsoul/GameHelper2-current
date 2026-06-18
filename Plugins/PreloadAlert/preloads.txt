@@ -1,0 +1,128 @@
+[
+  {
+    "Key": "Metadata/Monsters/Cenobite/CenobiteBloater/CenobiteBloater",
+    "Value": {
+      "DisplayName": "Cenobite Bloater",
+      "Color": {
+        "X": 1.0,
+        "Y": 0.35,
+        "Z": 0.20,
+        "W": 1.0
+      },
+      "LogToDisk": true,
+      "Enabled": true
+    }
+  },
+  {
+    "Key": "Metadata/Monsters/BloodMonsters/BloodCarrier1",
+    "Value": {
+      "DisplayName": "Blood Carrier",
+      "Color": {
+        "X": 1.0,
+        "Y": 0.20,
+        "Z": 0.20,
+        "W": 1.0
+      },
+      "LogToDisk": true,
+      "Enabled": true
+    }
+  },
+  {
+    "Key": "Metadata/Monsters/DrudgeMiners/DrudgeBedrockBlaster",
+    "Value": {
+      "DisplayName": "Forsaken Miner",
+      "Color": {
+        "X": 1.0,
+        "Y": 0.55,
+        "Z": 0.15,
+        "W": 1.0
+      },
+      "LogToDisk": true,
+      "Enabled": true
+    }
+  },
+  {
+    "Key": "Metadata/Monsters/FungusZombie/FungusZombieLarge",
+    "Value": {
+      "DisplayName": "Large Fungus Zombie",
+      "Color": {
+        "X": 0.45,
+        "Y": 1.0,
+        "Z": 0.35,
+        "W": 1.0
+      },
+      "LogToDisk": true,
+      "Enabled": true
+    }
+  },
+  {
+    "Key": "Metadata/Monsters/FungusZombie/FungusZombieMedium",
+    "Value": {
+      "DisplayName": "Medium Fungus Zombie",
+      "Color": {
+        "X": 0.45,
+        "Y": 0.85,
+        "Z": 0.35,
+        "W": 1.0
+      },
+      "LogToDisk": true,
+      "Enabled": true
+    }
+  },
+  {
+    "Key": "Metadata/Monsters/Spiker/Spiker3_",
+    "Value": {
+      "DisplayName": "Spiker",
+      "Color": {
+        "X": 0.90,
+        "Y": 0.90,
+        "Z": 0.20,
+        "W": 1.0
+      },
+      "LogToDisk": true,
+      "Enabled": true
+    }
+  },
+  {
+    "Key": "Metadata/Monsters/VaalMonsters/Living/VaalGoliathLivingCrystalThrower",
+    "Value": {
+      "DisplayName": "Vaal Goliath Crystal Thrower",
+      "Color": {
+        "X": 0.60,
+        "Y": 0.75,
+        "Z": 1.0,
+        "W": 1.0
+      },
+      "LogToDisk": true,
+      "Enabled": true
+    }
+  },
+  {
+    "Key": "Metadata/Monsters/Zombies/Maraketh/MarakethZombie",
+    "Value": {
+      "DisplayName": "Maraketh Zombie",
+      "Color": {
+        "X": 0.80,
+        "Y": 0.55,
+        "Z": 1.0,
+        "W": 1.0
+      },
+      "LogToDisk": true,
+      "Enabled": true
+    }
+  },
+  {
+    "Key": "Metadata/Monsters/ZombieTreasureHunters/IllFatedExplorer1",
+    "Value": {
+      "DisplayName": "Ill-fated Explorer",
+      "Color": {
+        "X": 0.35,
+        "Y": 1.0,
+        "Z": 0.85,
+        "W": 1.0
+      },
+      "LogToDisk": true,
+      "Enabled": true
+    }
+  }
+]
