@@ -51,5 +51,7 @@ namespace PreloadAlert
         ///     Gets a value indicating whether the user want to display time since last map spawn.
         /// </summary>
         public bool TimeSinceLastMapSpawn = true;
+
+        public bool ShowDebug = false;
     }
 }

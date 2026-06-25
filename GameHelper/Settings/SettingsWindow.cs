@@ -6,6 +6,7 @@ namespace GameHelper.Settings
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.IO;
     using System.Linq;
     using System.Numerics;
@@ -46,6 +47,7 @@ namespace GameHelper.Settings
         private static SettingsPage selectedPage = SettingsPage.Overview;
         private static string selectedPlugin = string.Empty;
         private static string diagnosticsExportStatus = string.Empty;
+        private static string pluginManagerStatus = string.Empty;
 
         private static EntityFilterType efilterType = EntityFilterType.PATH;
         private static string filterText = string.Empty;
@@ -299,16 +301,47 @@ namespace GameHelper.Settings
 
         private static void DrawPluginManager(PluginContainer[] plugins)
         {
-            if (ImGui.BeginTable("PluginManager", 4, ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+            if (ImGui.Button("Open plugins folder"))
+            {
+                OpenPath(State.PluginsDirectory.FullName);
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Open configs folder"))
+            {
+                OpenPath(State.CoreSettingFile.DirectoryName ?? "configs");
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Backup all plugin configs"))
+            {
+                pluginManagerStatus = BackupAllPluginConfigs(plugins);
+            }
+
+            if (!string.IsNullOrEmpty(pluginManagerStatus))
+            {
+                ImGui.TextDisabled(pluginManagerStatus);
+            }
+
+            if (ImGui.BeginTable("PluginManager", 7, ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Resizable))
             {
                 ImGui.TableSetupColumn("Enabled", ImGuiTableColumnFlags.WidthFixed, 80f);
                 ImGui.TableSetupColumn("Plugin");
-                ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, 160f);
-                ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 120f);
+                ImGui.TableSetupColumn("Status", ImGuiTableColumnFlags.WidthFixed, 120f);
+                ImGui.TableSetupColumn("Draw ms", ImGuiTableColumnFlags.WidthFixed, 90f);
+                ImGui.TableSetupColumn("Avg ms", ImGuiTableColumnFlags.WidthFixed, 90f);
+                ImGui.TableSetupColumn("Version", ImGuiTableColumnFlags.WidthFixed, 120f);
+                ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed, 310f);
                 ImGui.TableHeadersRow();
 
                 foreach (var container in plugins)
                 {
+                    var pluginDir = Path.GetFullPath(container.Directory);
+                    var pluginDll = Path.Combine(pluginDir, $"{container.Name}.dll");
+                    var configDir = Path.Combine(pluginDir, "config");
+                    var settingsPath = Path.Combine(configDir, "settings.txt");
+                    var status = PManager.GetRuntimeStatus(container.Name);
+
                     ImGui.TableNextRow();
                     ImGui.TableNextColumn();
                     var enabled = container.Metadata.Enable;
@@ -319,8 +352,9 @@ namespace GameHelper.Settings
 
                     ImGui.TableNextColumn();
                     ImGui.Text(container.Name);
+                    ImGuiHelper.ToolTip(pluginDir);
+
                     ImGui.TableNextColumn();
-                    var status = PManager.GetRuntimeStatus(container.Name);
                     ImGui.Text(status.ExceptionCount == 0 ? "Ready" : $"Errors {status.ExceptionCount}");
                     if (!string.IsNullOrEmpty(status.LastException))
                     {
@@ -328,17 +362,170 @@ namespace GameHelper.Settings
                     }
 
                     ImGui.TableNextColumn();
+                    ImGui.Text($"{status.LastDrawUiMs:0.00}");
+
+                    ImGui.TableNextColumn();
+                    ImGui.Text($"{status.AverageDrawUiMs:0.00}");
+
+                    ImGui.TableNextColumn();
+                    ImGui.Text(GetPluginDllVersion(pluginDll));
+
+                    ImGui.TableNextColumn();
                     ImGui.BeginDisabled(!container.Metadata.Enable);
-                    if (ImGui.Button($"Settings##pm-open-{container.Name}", new Vector2(-1f, 0f)))
+                    if (ImGui.SmallButton($"Settings##pm-open-{container.Name}"))
                     {
                         selectedPage = SettingsPage.Plugin;
                         selectedPlugin = container.Name;
                     }
 
                     ImGui.EndDisabled();
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton($"Folder##pm-folder-{container.Name}"))
+                    {
+                        OpenPath(pluginDir);
+                    }
+
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton($"Config##pm-config-{container.Name}"))
+                    {
+                        OpenPath(Directory.Exists(configDir) ? configDir : pluginDir);
+                    }
+
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton($"Backup##pm-backup-{container.Name}"))
+                    {
+                        pluginManagerStatus = BackupPluginConfig(container.Name, configDir);
+                    }
+
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton($"Restore##pm-restore-{container.Name}"))
+                    {
+                        pluginManagerStatus = RestoreLatestPluginConfig(container.Name, configDir);
+                    }
+
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton($"Reset##pm-reset-{container.Name}"))
+                    {
+                        pluginManagerStatus = ResetPluginConfig(container, settingsPath);
+                    }
                 }
 
                 ImGui.EndTable();
+            }
+        }
+
+        private static string GetPluginDllVersion(string pluginDll)
+        {
+            if (!File.Exists(pluginDll))
+            {
+                return "-";
+            }
+
+            try
+            {
+                var info = FileVersionInfo.GetVersionInfo(pluginDll);
+                return string.IsNullOrWhiteSpace(info.FileVersion) ? "-" : info.FileVersion;
+            }
+            catch
+            {
+                return "-";
+            }
+        }
+
+        private static void OpenPath(string path)
+        {
+            try
+            {
+                if (Directory.Exists(path) || File.Exists(path))
+                {
+                    Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+                }
+            }
+            catch (Exception ex)
+            {
+                pluginManagerStatus = $"Open failed: {ex.Message}";
+            }
+        }
+
+        private static string BackupAllPluginConfigs(PluginContainer[] plugins)
+        {
+            var ok = 0;
+            foreach (var plugin in plugins)
+            {
+                var configDir = Path.Combine(Path.GetFullPath(plugin.Directory), "config");
+                if (BackupPluginConfig(plugin.Name, configDir).StartsWith("Backup:", StringComparison.Ordinal))
+                {
+                    ok++;
+                }
+            }
+
+            return $"Backed up {ok}/{plugins.Length} plugin config folders.";
+        }
+
+        private static string BackupPluginConfig(string pluginName, string configDir)
+        {
+            if (!Directory.Exists(configDir))
+            {
+                return $"{pluginName}: no config folder.";
+            }
+
+            var backupDir = Path.Combine("configs", "plugin-backups", pluginName, DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+            CopyDirectory(configDir, backupDir, overwrite: true);
+            return $"Backup: {pluginName}";
+        }
+
+        private static string RestoreLatestPluginConfig(string pluginName, string configDir)
+        {
+            var pluginBackupRoot = Path.Combine("configs", "plugin-backups", pluginName);
+            if (!Directory.Exists(pluginBackupRoot))
+            {
+                return $"{pluginName}: no backups.";
+            }
+
+            var latest = Directory.GetDirectories(pluginBackupRoot).OrderByDescending(x => x).FirstOrDefault();
+            if (latest == null)
+            {
+                return $"{pluginName}: no backups.";
+            }
+
+            CopyDirectory(latest, configDir, overwrite: true);
+            return $"Restored: {pluginName}";
+        }
+
+        private static string ResetPluginConfig(PluginContainer container, string settingsPath)
+        {
+            try
+            {
+                if (File.Exists(settingsPath))
+                {
+                    File.Delete(settingsPath);
+                }
+
+                if (container.Metadata.Enable)
+                {
+                    container.Plugin.OnDisable();
+                    container.Plugin.OnEnable(Core.Process.Address != IntPtr.Zero);
+                }
+
+                return $"Reset: {container.Name}";
+            }
+            catch (Exception ex)
+            {
+                return $"Reset failed: {container.Name}: {ex.Message}";
+            }
+        }
+
+        private static void CopyDirectory(string sourceDir, string destinationDir, bool overwrite)
+        {
+            Directory.CreateDirectory(destinationDir);
+            foreach (var file in Directory.GetFiles(sourceDir))
+            {
+                File.Copy(file, Path.Combine(destinationDir, Path.GetFileName(file)), overwrite);
+            }
+
+            foreach (var directory in Directory.GetDirectories(sourceDir))
+            {
+                CopyDirectory(directory, Path.Combine(destinationDir, Path.GetFileName(directory)), overwrite);
             }
         }
 

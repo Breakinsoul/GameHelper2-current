@@ -119,6 +119,11 @@ namespace GameHelper.RemoteObjects.UiElement
         /// </summary>
         public int TotalChildrens => this.childrenAddresses.Length;
 
+        /// <summary>
+        ///     Gets the UI element string id, when the game exposes one.
+        /// </summary>
+        public string StringId { get; private set; } = string.Empty;
+
         public bool TryGetParent([NotNullWhen(true)] out UiElementBase? parent)
         {
             if (this.parentAddress == IntPtr.Zero)
@@ -220,6 +225,7 @@ namespace GameHelper.RemoteObjects.UiElement
             this.scaleIndex = 0x00;
             this.parentAddress = IntPtr.Zero;
             this.backgroundColor = Vector4.Zero;
+            this.StringId = string.Empty;
         }
 
         /// <inheritdoc />
@@ -264,6 +270,7 @@ namespace GameHelper.RemoteObjects.UiElement
             this.unScaledSize.Y = data.UnscaledSize.Y;
 
             this.backgroundColor = ImGuiHelper.Color(data.BackgroundColor);
+            this.StringId = Core.Process.Handle.ReadStdWString(data.StringIdPtr);
         }
 
         private const int MaxParentChainDepth = 64;

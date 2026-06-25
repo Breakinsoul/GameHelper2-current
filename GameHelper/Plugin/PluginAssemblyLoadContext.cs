@@ -2,6 +2,7 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Reflection;
     using System.Runtime.Loader;
     using GameOffsets;
@@ -16,11 +17,13 @@
             };
 
         private readonly AssemblyDependencyResolver resolver;
+        private readonly string pluginDirectory;
 
         public PluginAssemblyLoadContext(string assemblyLocation)
             : base(isCollectible: true)
         {
             this.resolver = new AssemblyDependencyResolver(assemblyLocation);
+            this.pluginDirectory = Path.GetDirectoryName(assemblyLocation) ?? string.Empty;
         }
 
         protected override Assembly? Load(AssemblyName assemblyName)
@@ -35,6 +38,15 @@
             if (path != null)
             {
                 return this.LoadFromAssemblyPath(path);
+            }
+
+            if (assemblyName.Name != null)
+            {
+                var localAssemblyPath = Path.Combine(this.pluginDirectory, $"{assemblyName.Name}.dll");
+                if (File.Exists(localAssemblyPath))
+                {
+                    return this.LoadFromAssemblyPath(localAssemblyPath);
+                }
             }
 
             return null;

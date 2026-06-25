@@ -59,9 +59,31 @@ namespace HealthBars
         public bool ShowDebugOverlay = false;
 
         /// <summary>
+        ///     Shows a compact runtime status overlay while tuning healthbars.
+        /// </summary>
+        public bool ShowStatusOverlay = false;
+
+        /// <summary>
+        ///     Position of the compact runtime status overlay.
+        /// </summary>
+        public Vector2 StatusOverlayPosition = new(20f, 120f);
+
+        /// <summary>
         ///     Draws monster bars when Life component exists but current/total HP is unreadable.
         /// </summary>
         public bool DrawUnknownHealthMonsters = true;
+
+        public bool ShowNormalMonsters = true;
+
+        public bool ShowMagicMonsters = true;
+
+        public bool ShowRareMonsters = true;
+
+        public bool ShowUniqueMonsters = true;
+
+        public bool ShowFriendlyMonsters = true;
+
+        public bool ShowPoiMonsters = true;
 
         /// <summary>
         ///     Uses the same monster-like fallback detection as Radar for renderable/unidentified monsters.

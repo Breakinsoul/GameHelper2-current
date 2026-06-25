@@ -17,9 +17,9 @@ namespace GameHelper.Plugin
     using Ui;
     using Utils;
 
-    internal record PluginWithName(string Name, IPCore Plugin, PluginAssemblyLoadContext Alc);
+    internal record PluginWithName(string Name, IPCore Plugin, PluginAssemblyLoadContext Alc, string Directory);
 
-    internal record PluginContainer(string Name, IPCore Plugin, PluginMetadata Metadata, PluginAssemblyLoadContext Alc);
+    internal record PluginContainer(string Name, IPCore Plugin, PluginMetadata Metadata, PluginAssemblyLoadContext Alc, string Directory);
 
     internal sealed class PluginRuntimeStatus
     {
@@ -276,7 +276,7 @@ namespace GameHelper.Plugin
                 }
 
                 pluginCore.SetPluginDllLocation(pluginRootDirectory);
-                return new PluginWithName(assembly.GetName().Name ?? string.Empty, pluginCore, alc);
+                return new PluginWithName(assembly.GetName().Name ?? string.Empty, pluginCore, alc, pluginRootDirectory);
             }
             catch (Exception e)
             {
@@ -295,7 +295,8 @@ namespace GameHelper.Plugin
                     metadata.GetValueOrDefault(
                         x.Name,
                         new PluginMetadata { Enable = IsEnabledByDefault(x.Name) }),
-                    x.Alc)).ToList();
+                    x.Alc,
+                    x.Directory)).ToList();
 
             lock (Plugins)
             {

@@ -10,3 +10,14 @@
 
 configs/
 docs/
+artifacts/
+logs/
+diagnostics/
+GameHelper/bin/
+Launcher/bin/
+Plugins/*/bin/
+Plugins/*/obj/
+Tools/*/bin/
+Tools/*/obj/
+*.zip
+imgui.ini

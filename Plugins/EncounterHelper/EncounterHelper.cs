@@ -97,6 +97,18 @@ namespace EncounterHelper
                 return;
             }
 
+            if (this.Settings.HideWhenGameInBackground && !Core.Process.Foreground)
+            {
+                return;
+            }
+
+            var world = Core.States.InGameStateObject.CurrentWorldInstance;
+            if ((this.Settings.HideInTown && world.AreaDetails.IsTown) ||
+                (this.Settings.HideInHideout && world.AreaDetails.IsHideout))
+            {
+                return;
+            }
+
             var area = Core.States.InGameStateObject.CurrentAreaInstance;
             if (!area.Player.TryGetComponent<Render>(out var playerRender, false))
             {
@@ -261,6 +273,9 @@ namespace EncounterHelper
 
                 ImGui.TableNextColumn();
                 ImGui.Checkbox("Hide dead", ref this.Settings.HideDead);
+                ImGui.Checkbox("Hide when game is in background", ref this.Settings.HideWhenGameInBackground);
+                ImGui.Checkbox("Hide in town", ref this.Settings.HideInTown);
+                ImGui.Checkbox("Hide in hideout", ref this.Settings.HideInHideout);
                 ImGui.Checkbox("Only matched in summary", ref this.Settings.ShowOnlyMatchedSummary);
                 ImGui.SliderFloat("Max grid distance", ref this.Settings.MaxGridDistance, 50f, 1200f);
                 ImGui.EndTable();

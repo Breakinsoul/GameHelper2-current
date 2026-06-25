@@ -41,6 +41,34 @@ namespace AreaTracker
 
         public override void DrawSettings()
         {
+            if (!ImGui.BeginTabBar("AreaTrackerSettingsTabs"))
+            {
+                return;
+            }
+
+            if (ImGui.BeginTabItem("General"))
+            {
+                this.DrawGeneralSettings();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("History"))
+            {
+                this.DrawHistorySettings();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("Debug"))
+            {
+                this.DrawDebugSettings();
+                ImGui.EndTabItem();
+            }
+
+            ImGui.EndTabBar();
+        }
+
+        private void DrawGeneralSettings()
+        {
             var show = this.Settings.ShowWindow;
             if (ImGui.Checkbox("Show area tracker", ref show))
             {
@@ -52,19 +80,52 @@ namespace AreaTracker
             {
                 this.Settings.HideWhenGameInBackground = hide;
             }
+        }
 
+        private void DrawHistorySettings()
+        {
             var autoExport = this.Settings.AutoExportOnAreaChange;
             if (ImGui.Checkbox("Auto export on area change", ref autoExport))
             {
                 this.Settings.AutoExportOnAreaChange = autoExport;
             }
 
-            var maxVisits = this.Settings.MaxVisits;
+            var maxVisits = Math.Clamp(this.Settings.MaxVisits, 10, 1000);
             if (ImGui.SliderInt("Max history rows", ref maxVisits, 10, 1000))
             {
                 this.Settings.MaxVisits = maxVisits;
                 this.TrimVisits();
             }
+
+            if (this.Settings.MaxVisits != maxVisits)
+            {
+                this.Settings.MaxVisits = maxVisits;
+                this.TrimVisits();
+            }
+        }
+
+        private void DrawDebugSettings()
+        {
+            var showDebug = this.Settings.ShowDebug;
+            if (ImGui.Checkbox("Show debug details in tracker window", ref showDebug))
+            {
+                this.Settings.ShowDebug = showDebug;
+            }
+
+            ImGui.Separator();
+            ImGui.Text($"Tracked visits: {this.visits.Count}");
+            ImGui.Text($"Current area hash: {(string.IsNullOrEmpty(this.currentAreaHash) ? "-" : this.currentAreaHash)}");
+            ImGui.Text($"Export status: {(string.IsNullOrEmpty(this.exportStatus) ? "-" : this.exportStatus)}");
+
+            var current = this.visits.FirstOrDefault();
+            if (current == null)
+            {
+                return;
+            }
+
+            ImGui.Text($"Awake entities: {current.AwakeEntities}");
+            ImGui.Text($"Network bubble entities: {current.NetworkBubbleEntities}");
+            ImGui.Text($"Useless awake entities: {current.UselessAwakeEntities}");
         }
 
         public override void DrawUI()
@@ -147,6 +208,10 @@ namespace AreaTracker
             if (current != null)
             {
                 ImGui.Text($"Current: {current.AreaHash}  level {current.AreaLevel}  time {FormatDuration(current.LastSeenAt - current.EnteredAt)}");
+                if (this.Settings.ShowDebug)
+                {
+                    ImGui.TextDisabled($"Awake {current.AwakeEntities}, network {current.NetworkBubbleEntities}, useless {current.UselessAwakeEntities}");
+                }
             }
             else
             {

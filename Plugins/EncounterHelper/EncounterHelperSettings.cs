@@ -14,6 +14,12 @@ namespace EncounterHelper
 
         public bool HideDead = true;
 
+        public bool HideWhenGameInBackground = true;
+
+        public bool HideInTown = true;
+
+        public bool HideInHideout = true;
+
         public float MarkerRadius = 12f;
 
         public float MarkerThickness = 3f;

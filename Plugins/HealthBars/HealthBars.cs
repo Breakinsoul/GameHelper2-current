@@ -57,6 +57,8 @@ namespace HealthBars
 
         private bool IsDebugEnabled => this.Settings.ShowDebugTable || this.Settings.ShowDebugOverlay;
 
+        private bool IsTelemetryEnabled => this.IsDebugEnabled || this.Settings.ShowStatusOverlay;
+
         /// <inheritdoc />
         public override void DrawSettings()
         {
@@ -118,6 +120,7 @@ namespace HealthBars
             if (Core.States.GameCurrentState is not (GameStateTypes.InGameState or GameStateTypes.EscapeState))
             {
                 this.debugSkipReason = "Game state is not InGameState/EscapeState";
+                this.DrawHealthBarStatusOverlay();
                 this.DrawHealthBarDebugOverlay();
                 return;
             }
@@ -128,6 +131,7 @@ namespace HealthBars
                 (!this.Settings.DrawInHideout && cWorldInstance.AreaDetails.IsHideout))
             {
                 this.debugSkipReason = "Hidden in town/hideout by settings";
+                this.DrawHealthBarStatusOverlay();
                 this.DrawHealthBarDebugOverlay();
                 return;
             }
@@ -135,6 +139,7 @@ namespace HealthBars
             if (!this.Settings.DrawWhenGameInBackground && !Core.Process.Foreground)
             {
                 this.debugSkipReason = "Game is in background";
+                this.DrawHealthBarStatusOverlay();
                 this.DrawHealthBarDebugOverlay();
                 return;
             }
@@ -143,6 +148,7 @@ namespace HealthBars
                 Core.States.InGameStateObject.GameUi.IsAnyLargePanelOpen)
             {
                 this.debugSkipReason = "Large panel is open";
+                this.DrawHealthBarStatusOverlay();
                 this.DrawHealthBarDebugOverlay();
                 return;
             }
@@ -221,6 +227,12 @@ namespace HealthBars
 
                 if (entityValue.EntitySubtype == EntitySubtypes.POIMonster)
                 {
+                    if (!this.Settings.ShowPoiMonsters)
+                    {
+                        this.RecordDebug(entityValue, "filtered", "POI monsters hidden by settings", true);
+                        continue;
+                    }
+
                     if (!this.Settings.POIMonster.TryGetValue(entityValue.EntityCustomGroup, out var poiConfig))
                     {
                         poiConfig = this.Settings.POIMonster[-1];
@@ -235,10 +247,22 @@ namespace HealthBars
                 }
                 else if (entityValue.EntityState == EntityStates.MonsterFriendly)
                 {
+                    if (!this.Settings.ShowFriendlyMonsters)
+                    {
+                        this.RecordDebug(entityValue, "filtered", "friendly monsters hidden by settings", true);
+                        continue;
+                    }
+
                     this.DrawHealthbar(entityValue, this.Settings.Monster["friendly"], (int)Rarity.Rare, false, "friendly monster");
                 }
                 else if (entityValue.TryGetComponent<ObjectMagicProperties>(out var magicProps))
                 {
+                    if (!this.ShouldDrawRarity(magicProps.Rarity))
+                    {
+                        this.RecordDebug(entityValue, "filtered", $"{magicProps.Rarity} monsters hidden by settings", true, (int)magicProps.Rarity);
+                        continue;
+                    }
+
                     switch (magicProps.Rarity)
                     {
                         case Rarity.Normal:
@@ -257,10 +281,17 @@ namespace HealthBars
                 }
                 else
                 {
+                    if (!this.Settings.ShowNormalMonsters)
+                    {
+                        this.RecordDebug(entityValue, "filtered", "fallback normal monsters hidden by settings", true, (int)Rarity.Normal);
+                        continue;
+                    }
+
                     this.DrawHealthbar(entityValue, this.Settings.Monster["white"], (int)Rarity.Normal, false, "fallback monster");
                 }
             }
 
+            this.DrawHealthBarStatusOverlay();
             this.DrawHealthBarDebugOverlay();
         }
 
@@ -331,6 +362,21 @@ namespace HealthBars
                 ImGui.EndTable();
             }
 
+            ImGui.SeparatorText("Visible monster classes");
+            if (ImGui.BeginTable("HealthBarsVisibleClasses", 3, ImGuiTableFlags.SizingStretchSame))
+            {
+                ImGui.TableNextColumn();
+                ImGui.Checkbox("Normal", ref this.Settings.ShowNormalMonsters);
+                ImGui.Checkbox("Magic", ref this.Settings.ShowMagicMonsters);
+                ImGui.TableNextColumn();
+                ImGui.Checkbox("Rare", ref this.Settings.ShowRareMonsters);
+                ImGui.Checkbox("Unique", ref this.Settings.ShowUniqueMonsters);
+                ImGui.TableNextColumn();
+                ImGui.Checkbox("Friendly", ref this.Settings.ShowFriendlyMonsters);
+                ImGui.Checkbox("POI", ref this.Settings.ShowPoiMonsters);
+                ImGui.EndTable();
+            }
+
             ImGui.SeparatorText("Cull strike thresholds");
             ImGui.TextUnformatted("white       magic       rare        unique");
             ImGui.DragInt4("Percent health", ref this.Settings.CullingStrikeRangePerRarity[0], 1, 0, 100);
@@ -338,6 +384,25 @@ namespace HealthBars
 
         private void DrawAppearanceSettings()
         {
+            ImGui.SeparatorText("Presets");
+            if (ImGui.Button("Compact"))
+            {
+                this.ApplyStylePreset(HealthBarsStylePreset.Compact);
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("High contrast"))
+            {
+                this.ApplyStylePreset(HealthBarsStylePreset.HighContrast);
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Boss focus"))
+            {
+                this.ApplyStylePreset(HealthBarsStylePreset.BossFocus);
+            }
+
+            ImGui.SeparatorText("Rendering");
             ImGui.Checkbox("Use modern bars", ref this.Settings.UseModernBars);
             if (!this.Settings.UseModernBars)
             {
@@ -355,6 +420,10 @@ namespace HealthBars
             ImGui.Checkbox("Use global HP text color", ref this.Settings.UseGlobalCurrentHealthTextColor);
             ImGui.ColorEdit4("Current HP text color", ref this.Settings.CurrentHealthTextColor);
             ImGui.ColorEdit4("Current HP shadow color", ref this.Settings.CurrentHealthTextShadowColor);
+
+            ImGui.SeparatorText("Runtime summary");
+            ImGui.Checkbox("Show status overlay", ref this.Settings.ShowStatusOverlay);
+            ImGui.SliderFloat2("Status overlay position", ref this.Settings.StatusOverlayPosition, 0f, 4000f);
         }
 
         private void DrawDebugSettings()
@@ -479,6 +548,61 @@ namespace HealthBars
             }
 
             this.Settings.InterpolationRate = Math.Clamp(this.Settings.InterpolationRate, 1, 1000);
+        }
+
+        private void ApplyStylePreset(HealthBarsStylePreset preset)
+        {
+            this.Settings.UseModernBars = true;
+            switch (preset)
+            {
+                case HealthBarsStylePreset.Compact:
+                    this.Settings.ModernBarRounding = 2f;
+                    this.Settings.ModernBarBorderThickness = 0f;
+                    this.Settings.ModernBarShadowAlpha = 34;
+                    this.ApplyScale("white", new Vector2(86f, 4f), false);
+                    this.ApplyScale("magic", new Vector2(92f, 5f), false);
+                    this.ApplyScale("rare", new Vector2(112f, 7f), true);
+                    this.ApplyScale("unique", new Vector2(138f, 10f), true);
+                    break;
+                case HealthBarsStylePreset.HighContrast:
+                    this.Settings.ModernBarRounding = 3f;
+                    this.Settings.ModernBarBorderThickness = 1.25f;
+                    this.Settings.ModernBarShadowAlpha = 78;
+                    this.Settings.CurrentHealthTextColor = new(0.95f, 0.98f, 1f, 1f);
+                    this.ApplyScale("white", new Vector2(104f, 6f), false);
+                    this.ApplyScale("magic", new Vector2(112f, 7f), false);
+                    this.ApplyScale("rare", new Vector2(132f, 9f), true);
+                    this.ApplyScale("unique", new Vector2(160f, 12f), true);
+                    break;
+                case HealthBarsStylePreset.BossFocus:
+                    this.Settings.ModernBarRounding = 3f;
+                    this.Settings.ModernBarBorderThickness = 1f;
+                    this.Settings.ModernBarShadowAlpha = 64;
+                    this.Settings.ShowNormalMonsters = false;
+                    this.Settings.ShowMagicMonsters = false;
+                    this.Settings.ShowRareMonsters = true;
+                    this.Settings.ShowUniqueMonsters = true;
+                    this.ApplyScale("rare", new Vector2(138f, 9f), true);
+                    this.ApplyScale("unique", new Vector2(190f, 15f), true);
+                    break;
+            }
+
+            foreach (var config in this.Settings.Monster.Values)
+            {
+                config.Normalize();
+            }
+        }
+
+        private void ApplyScale(string key, Vector2 scale, bool showText)
+        {
+            if (!this.Settings.Monster.TryGetValue(key, out var config))
+            {
+                return;
+            }
+
+            config.Scale = scale;
+            config.ShowText = showText;
+            config.Normalize();
         }
 
         private void DrawHealthbar(Entity entity, Config healthbarConfig, int rarity, bool isSelf = false, string source = "")
@@ -779,7 +903,7 @@ namespace HealthBars
 
         private void ResetDebugState()
         {
-            if (!this.IsDebugEnabled)
+            if (!this.IsTelemetryEnabled)
             {
                 this.debugRecords.Clear();
                 return;
@@ -800,6 +924,15 @@ namespace HealthBars
                 entity.EntityType == EntityTypes.Monster ||
                 this.HasMonsterEvidence(entity);
         }
+
+        private bool ShouldDrawRarity(Rarity rarity) => rarity switch
+        {
+            Rarity.Normal => this.Settings.ShowNormalMonsters,
+            Rarity.Magic => this.Settings.ShowMagicMonsters,
+            Rarity.Rare => this.Settings.ShowRareMonsters,
+            Rarity.Unique => this.Settings.ShowUniqueMonsters,
+            _ => true,
+        };
 
         private bool HasMonsterEvidence(Entity entity)
         {
@@ -964,6 +1097,35 @@ namespace HealthBars
 
             this.DrawHealthBarDebugSummary();
             this.DrawHealthBarDebugTable();
+            ImGui.End();
+        }
+
+        private void DrawHealthBarStatusOverlay()
+        {
+            if (!this.Settings.ShowStatusOverlay)
+            {
+                return;
+            }
+
+            ImGui.SetNextWindowPos(this.Settings.StatusOverlayPosition, ImGuiCond.FirstUseEver);
+            ImGui.SetNextWindowSize(new Vector2(300f, 118f), ImGuiCond.FirstUseEver);
+            var show = this.Settings.ShowStatusOverlay;
+            if (!ImGui.Begin("HealthBars Status", ref show, ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar))
+            {
+                this.Settings.ShowStatusOverlay = show;
+                ImGui.End();
+                return;
+            }
+
+            this.Settings.ShowStatusOverlay = show;
+            this.Settings.StatusOverlayPosition = ImGui.GetWindowPos();
+            ImGui.TextUnformatted("HealthBars");
+            ImGui.SameLine();
+            ImGui.TextDisabled(this.debugSkipReason);
+            ImGui.Separator();
+            ImGui.TextUnformatted($"Seen {this.debugEntitiesSeen}  candidates {this.debugCandidates}");
+            ImGui.TextUnformatted($"Attempts {this.debugDrawAttempts}  drawn {this.debugDrawn}  filtered {this.debugFiltered}");
+            ImGui.TextUnformatted($"Visible: N={this.Settings.ShowNormalMonsters} M={this.Settings.ShowMagicMonsters} R={this.Settings.ShowRareMonsters} U={this.Settings.ShowUniqueMonsters}");
             ImGui.End();
         }
 

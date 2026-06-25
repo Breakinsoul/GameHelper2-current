@@ -32,6 +32,37 @@ namespace WorldDrawing
         /// <inheritdoc/>
         public override void DrawSettings()
         {
+            if (!ImGui.BeginTabBar("WorldDrawingSettingsTabs"))
+            {
+                return;
+            }
+
+            if (ImGui.BeginTabItem("General"))
+            {
+                ImGui.Checkbox("Only show abyss path when large map is hidden", ref this.Settings.OnlyShowAbyssPathWhenLargeMapHidden);
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("Abyss Path"))
+            {
+                for (var i = 0; i < this.Settings.AbyssPath.Length; i++)
+                {
+                    var path = this.Settings.AbyssPath[i];
+                    ImGui.PushID(i);
+                    ImGui.Checkbox("Enabled", ref path.enable);
+                    ImGui.SameLine();
+                    ImGui.SetNextItemWidth(120f);
+                    ImGui.SliderFloat("Width", ref path.width, 0.5f, 10f);
+                    ImGui.SameLine();
+                    ImGui.ColorEdit4("Color", ref path.color, ImGuiColorEditFlags.NoInputs);
+                    ImGui.PopID();
+                    this.Settings.AbyssPath[i] = path;
+                }
+
+                ImGui.EndTabItem();
+            }
+
+            ImGui.EndTabBar();
         }
 
         /// <inheritdoc/>
@@ -56,7 +87,7 @@ namespace WorldDrawing
             if (File.Exists(this.SettingPathname))
             {
                 var content = File.ReadAllText(this.SettingPathname);
-                this.Settings = JsonConvert.DeserializeObject<WorldDrawingSettings>(content);
+                this.Settings = JsonConvert.DeserializeObject<WorldDrawingSettings>(content) ?? new WorldDrawingSettings();
             }
 
             this.onAreaChangeCoroutine = CoroutineHandler.Start(this.onAreaChange());

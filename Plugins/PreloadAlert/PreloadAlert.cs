@@ -89,11 +89,30 @@ namespace PreloadAlert
         /// </summary>
         public override void DrawSettings()
         {
-            ImGui.TextWrapped("If you find something new and want to add it to the preload " +
-                              "you can use Core -> Data Visualization -> CurrentAreaLoadedFiles feature.");
-            ImGui.Separator();
-            this.DisplaySettings();
-            this.DisplayAllImportantPreloads();
+            if (!ImGui.BeginTabBar("PreloadAlertSettingsTabs"))
+            {
+                return;
+            }
+
+            if (ImGui.BeginTabItem("General"))
+            {
+                this.DisplaySettings();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("Preloads"))
+            {
+                this.DisplayAllImportantPreloads();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("Debug"))
+            {
+                this.DisplayDebugSettings();
+                ImGui.EndTabItem();
+            }
+
+            ImGui.EndTabBar();
         }
 
         /// <summary>
@@ -171,6 +190,13 @@ namespace PreloadAlert
                     ImGui.Text($"Timer: {this.lastMapSpawnTimer.Elapsed.TotalSeconds:00s}");
                     ImGui.Separator();
                 }
+
+                if (this.Settings.ShowDebug)
+                {
+                    ImGui.TextDisabled($"Found: {this.preloadFoundList.Count}, configured: {this.preloads.Count()}");
+                    ImGui.Separator();
+                }
+
                 if (areaDetails.IsHideout)
                 {
                     ImGui.Text("Preloads are not updated in hideout.");
@@ -195,31 +221,26 @@ namespace PreloadAlert
 
         private void DisplaySettings()
         {
-            if (ImGui.CollapsingHeader("Settings"))
-            {
-                ImGui.Checkbox("Lock/Unlock preload window", ref this.Settings.Locked);
-                ImGuiHelper.ToolTip("You can also lock it by double clicking the preload window. " +
-                                  "However, you can only unlock it from here.");
-                ImGui.Checkbox("Hide when locked & not ingame", ref this.Settings.EnableHideUi);
-                ImGui.Checkbox("Hide when no preload found", ref this.Settings.HideWindowWhenEmpty);
-                ImGui.Checkbox("Hide when in town or hideout", ref this.Settings.HideWhenInTownOrHideout);
-                ImGui.Checkbox("Show time since last map opened", ref this.Settings.TimeSinceLastMapSpawn);
-            }
+            ImGui.Checkbox("Lock preload window", ref this.Settings.Locked);
+            ImGuiHelper.ToolTip("Double-click the preload window to lock it after positioning.");
+            ImGui.Checkbox("Hide when locked and not in game", ref this.Settings.EnableHideUi);
+            ImGui.Checkbox("Hide when no preload found", ref this.Settings.HideWindowWhenEmpty);
+            ImGui.Checkbox("Hide in town or hideout", ref this.Settings.HideWhenInTownOrHideout);
+            ImGui.Checkbox("Show time since last map opened", ref this.Settings.TimeSinceLastMapSpawn);
+            ImGui.ColorEdit4("Background color", ref this.Settings.BackgroundColor, ImGuiColorEditFlags.NoInputs);
         }
 
         private void DisplayAllImportantPreloads()
         {
-            if (ImGui.CollapsingHeader("All Important Preloads"))
+            ImGui.SetNextItemWidth(MathF.Min(360f, ImGui.GetContentRegionAvail().X));
+            ImGui.InputText("Filter", ref this.preloadListFilter, 200);
+            if (this.preloads.Count() == 0)
             {
-                ImGui.InputText("Preload Alert List Filter", ref this.preloadListFilter, 200);
-                if (this.preloads.Count() == 0)
-                {
-                    ImGui.Text("No important preload found. Did you forget to copy preload.txt " +
-                        "file in the preload alert plugin folder?");
-                }
-                else
-                {
-                    ImGui.BeginTable("AllImportantPreloadsTable", 7, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY);
+                ImGui.TextUnformatted("No preload entries configured.");
+            }
+            else
+            {
+                ImGui.BeginTable("AllImportantPreloadsTable", 7, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY);
                     ImGui.TableSetupColumn("Enable", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.NoHide);
                     ImGui.TableSetupColumn("Priority", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.NoHide);
                     ImGui.TableSetupColumn("Log", ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.NoHide);
@@ -379,7 +400,27 @@ namespace PreloadAlert
                     }
 
                     ImGui.EndTable();
-                }
+            }
+        }
+
+        private void DisplayDebugSettings()
+        {
+            ImGui.Checkbox("Show debug details in preload window", ref this.Settings.ShowDebug);
+            ImGui.Separator();
+            ImGui.Text($"Configured preloads: {this.preloads.Count()}");
+            ImGui.Text($"Found in current area: {this.preloadFoundList.Count}");
+            ImGui.Text($"Seconds since last map opened: {this.lastMapSpawnTimer.Elapsed.TotalSeconds:0}");
+            ImGui.Text($"Preload list: {this.PreloadFileName}");
+
+            if (this.preloadFoundList.Count == 0)
+            {
+                return;
+            }
+
+            ImGui.Separator();
+            foreach (var preload in this.preloadFoundList)
+            {
+                ImGui.TextColored(preload.Color, preload.DisplayName);
             }
         }
 

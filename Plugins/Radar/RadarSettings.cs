@@ -176,7 +176,14 @@ namespace Radar
         /// <summary>
         /// Entity path substrings that Radar must not draw.
         /// </summary>
-        public List<string> DisabledEntityPathFilters = new();
+        public List<string> DisabledEntityPathFilters = new()
+        {
+            "Metadata/Effects/*",
+            "Metadata/MiscellaneousObjects/*",
+            "Metadata/Characters/*",
+            "Metadata/Chests/*",
+            "Metadata/NPC/*",
+        };
 
         /// <summary>
         /// Gets a value indicating what color to use for drawing the POI.

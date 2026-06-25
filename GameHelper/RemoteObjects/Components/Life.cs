@@ -14,6 +14,25 @@ namespace GameHelper.RemoteObjects.Components
     /// </summary>
     public class Life : ComponentBase
     {
+        public readonly record struct VitalCandidate(int Offset, int Current, int Total, IntPtr Owner, bool Plausible);
+
+        private static readonly int[] HealthOffsetCandidates =
+        [
+            0x1B0,
+            0x1A8,
+            0x1B8,
+            0x1A0,
+            0x1C0,
+            0x190,
+            0x198,
+            0x1C8,
+            0x1D0,
+            0x1D8,
+            0x1E0,
+        ];
+
+        private static int healthOffset = 0x1B0;
+
         /// <summary>
         ///     Initializes a new instance of the <see cref="Life" /> class.
         /// </summary>
@@ -41,6 +60,8 @@ namespace GameHelper.RemoteObjects.Components
         /// </summary>
         public VitalStruct Mana { get; private set; }
 
+        public static int HealthOffset => healthOffset;
+
         /// <summary>
         ///     Converts the <see cref="Life" /> class data to ImGui.
         /// </summary>
@@ -51,6 +72,12 @@ namespace GameHelper.RemoteObjects.Components
             if (ImGui.TreeNode("Health"))
             {
                 this.VitalToImGui(this.Health);
+                ImGui.Text($"Health Offset: 0x{healthOffset:X}");
+                foreach (var candidate in this.GetHealthDiagnostics())
+                {
+                    ImGui.Text($"  0x{candidate.Offset:X}: {candidate.Current}/{candidate.Total}, owner=0x{candidate.Owner.ToInt64():X}, ok={candidate.Plausible}");
+                }
+
                 ImGui.TreePop();
             }
 
@@ -71,12 +98,79 @@ namespace GameHelper.RemoteObjects.Components
         protected override void UpdateData(bool hasAddressChanged)
         {
             var reader = Core.Process.Handle;
-            var data = reader.ReadMemory<LifeOffset>(this.Address);
-            this.OwnerEntityAddress = data.Header.EntityPtr;
-            this.Health = data.Health;
-            this.EnergyShield = data.EnergyShield;
-            this.Mana = data.Mana;
-            this.IsAlive = data.Health.Current > 0;
+            var header = reader.ReadMemory<ComponentHeader>(this.Address);
+            this.OwnerEntityAddress = header.EntityPtr;
+            this.Health = this.ResolveHealth();
+            this.Mana = this.ReadVitalAtOffset(healthOffset + 0x58);
+            this.EnergyShield = this.ReadVitalAtOffset(healthOffset + 0x98);
+            this.IsAlive = this.Health.Current > 0;
+        }
+
+        public VitalCandidate[] GetHealthDiagnostics()
+        {
+            var ret = new VitalCandidate[HealthOffsetCandidates.Length];
+            for (var i = 0; i < HealthOffsetCandidates.Length; i++)
+            {
+                var offset = HealthOffsetCandidates[i];
+                var value = this.ReadVitalAtOffset(offset);
+                ret[i] = new VitalCandidate(
+                    offset,
+                    value.Current,
+                    value.Total,
+                    value.PtrToLifeComponent,
+                    this.IsPlausibleHealth(value));
+            }
+
+            return ret;
+        }
+
+        private VitalStruct ResolveHealth()
+        {
+            var cached = this.ReadVitalAtOffset(healthOffset);
+            if (this.IsPlausibleHealth(cached))
+            {
+                return cached;
+            }
+
+            foreach (var offset in HealthOffsetCandidates)
+            {
+                var value = this.ReadVitalAtOffset(offset);
+                if (!this.IsPlausibleHealth(value))
+                {
+                    continue;
+                }
+
+                if (offset != healthOffset)
+                {
+                    healthOffset = offset;
+                    AppLogger.Info($"[Life] Auto-selected Health offset 0x{healthOffset:X}.");
+                    Console.WriteLine($"[Life] Auto-selected Health offset 0x{healthOffset:X}.");
+                }
+
+                return value;
+            }
+
+            return cached;
+        }
+
+        private VitalStruct ReadVitalAtOffset(int offset)
+        {
+            try
+            {
+                return Core.Process.Handle.ReadMemory<VitalStruct>(IntPtr.Add(this.Address, offset));
+            }
+            catch
+            {
+                return default;
+            }
+        }
+
+        private bool IsPlausibleHealth(VitalStruct value)
+        {
+            return value.PtrToLifeComponent == this.Address &&
+                value.Total is > 0 and < 100000000 &&
+                value.Current >= 0 &&
+                value.Current <= value.Total;
         }
 
         private void VitalToImGui(VitalStruct data)

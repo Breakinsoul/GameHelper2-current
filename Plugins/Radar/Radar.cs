@@ -1635,7 +1635,20 @@ namespace Radar
             return !string.IsNullOrWhiteSpace(path) &&
                 this.Settings.DisabledEntityPathFilters.Any(filter =>
                     !string.IsNullOrWhiteSpace(filter) &&
-                    path.Contains(filter, StringComparison.OrdinalIgnoreCase));
+                    this.IsEntityPathFilterMatch(path, filter));
+        }
+
+        private bool IsEntityPathFilterMatch(string path, string filter)
+        {
+            var normalizedFilter = filter.Trim();
+            if (normalizedFilter.EndsWith("/*", StringComparison.Ordinal))
+            {
+                return path.StartsWith(
+                    normalizedFilter[..^1],
+                    StringComparison.OrdinalIgnoreCase);
+            }
+
+            return path.Contains(normalizedFilter, StringComparison.OrdinalIgnoreCase);
         }
 
         private void RecordDrawnEntity(
@@ -1920,12 +1933,20 @@ namespace Radar
                 ImGui.Text($"Last projected: {this.debugLastProjectedPosition}");
                 ImGui.Text($"Last drawn: {this.debugLastDrawnPosition}");
                 ImGui.Text($"Area hash: {instance.AreaHash}, network={instance.NetworkBubbleEntityCount}, awake={instance.AwakeEntities.Count}");
+                ImGui.Text($"Entities offset: 0x{GameHelper.RemoteObjects.States.InGameStateObjects.AreaInstance.EntitiesOffset:X}");
                 if (instance.Player.TryGetComponent<Render>(out var playerRender))
                 {
                     ImGui.Separator();
                     ImGui.Text($"Player grid: {playerRender.GridPosition}");
+                    ImGui.Text($"World position offset: 0x{Render.WorldPositionOffset:X}");
                     ImGui.Text($"Player terrain: {playerRender.TerrainHeight:0.####}");
                     ImGui.Text($"Terrain offset: 0x{Render.TerrainHeightOffset:X}");
+                }
+
+                if (instance.Player.TryGetComponent<Life>(out var playerLife))
+                {
+                    ImGui.Text($"Health offset: 0x{Life.HealthOffset:X}");
+                    ImGui.Text($"Player life: {playerLife.Health.Current}/{playerLife.Health.Total}");
                 }
             }
 

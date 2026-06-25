@@ -36,6 +36,25 @@ namespace GameHelper.RemoteObjects.States.InGameStateObjects
         private string entityPathFilter;
         private Rarity entityRarityFilter;
         private byte filterBy;
+        private static int entitiesOffset = 0x6C0;
+        private static readonly int[] EntitiesOffsetCandidates =
+        [
+            0x6C0,
+            0x680,
+            0x690,
+            0x6A0,
+            0x6B0,
+            0x6D0,
+            0x6E0,
+            0x6F0,
+            0x700,
+            0x710,
+            0x720,
+            0x730,
+            0x740,
+            0x750,
+            0x760,
+        ];
 
         private StdVector environmentPtr;
         private readonly List<int> environments;
@@ -235,7 +254,45 @@ namespace GameHelper.RemoteObjects.States.InGameStateObjects
             this.UpdateEnvironmentAndCaches(data.Environments);
             this.ServerDataObject.Address = data.PlayerInfo.ServerDataPtr;
             this.Player.Address = data.PlayerInfo.LocalPlayerPtr;
-            this.UpdateEntities(data.Entities.AwakeEntities, this.AwakeEntities, true);
+            this.UpdateEntities(this.ResolveAwakeEntitiesMap(reader, data.Entities.AwakeEntities), this.AwakeEntities, true);
+        }
+
+        public static int EntitiesOffset => entitiesOffset;
+
+        private StdMap ResolveAwakeEntitiesMap(SafeMemoryHandle reader, StdMap defaultMap)
+        {
+            if (IsPlausibleEntityMap(defaultMap))
+            {
+                return defaultMap;
+            }
+
+            foreach (var offset in EntitiesOffsetCandidates)
+            {
+                var candidate = reader.ReadMemory<EntityListStruct>(IntPtr.Add(this.Address, offset)).AwakeEntities;
+                if (!IsPlausibleEntityMap(candidate))
+                {
+                    continue;
+                }
+
+                if (offset != entitiesOffset)
+                {
+                    entitiesOffset = offset;
+                    AppLogger.Info($"[AreaInstance] Auto-selected Entities offset 0x{entitiesOffset:X}.");
+                    Console.WriteLine($"[AreaInstance] Auto-selected Entities offset 0x{entitiesOffset:X}.");
+                }
+
+                return candidate;
+            }
+
+            return defaultMap;
+        }
+
+        private static bool IsPlausibleEntityMap(StdMap map)
+        {
+            var head = map.Head.ToInt64();
+            return head > 0x10000 &&
+                head <= 0x7FFFFFFFFFFF &&
+                map.Size is > 0 and < 100000;
         }
 
         private void UpdateEnvironmentAndCaches(StdVector environments)

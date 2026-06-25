@@ -10,6 +10,8 @@ namespace AreaTracker
 
         public bool AutoExportOnAreaChange { get; set; }
 
+        public bool ShowDebug { get; set; }
+
         public int MaxVisits { get; set; } = 100;
     }
 }

@@ -52,39 +52,27 @@ namespace AutoHotKeyTrigger
         /// <inheritdoc />
         public override void DrawSettings()
         {
-            ImGui.PushTextWrapPos(ImGui.GetContentRegionAvail().X);
-            ImGui.TextColored(this.impTextColor, "Do not trust Settings.txt files for Auto Hokey Trigger from sources you have not personally verified. " + 
-                              "They may contain malicious content that can compromise your computer. " +
-                              "Using profiles with incorrectly configured rules may also lead to you being kicked from the server, " +
-                              "or your account being banned as a result of preforming to many actions repeatedly.") ;
-            ImGui.NewLine();
-            ImGui.TextColored(this.impTextColor, "Again, all profiles/rules created to use a specified flask(s) should have at a minimum " +
-                              "the FLASK_EFFECT and an appropriate number of FLASK_CHARGES defined as part of the use condition of a given profile rule. " +
-                              "Failing to to include these two conditions as part of a rule will likely result in Auto Hotkey Trigger spamming the flask(s), " + 
-                              "resulting in a possible kick or ban from the game servers because of sending to many actions to the server. " +
-                              "You have been warrned, use common sense when creating profiles/rulse with this tool.");
-            ImGui.PopTextWrapPos();
-            if (ImGui.CollapsingHeader("Common Config"))
+            ImGui.TextColored(this.impTextColor, "Review imported profiles before enabling them.");
+
+            if (!ImGui.BeginTabBar("AutoHotKeyTriggerSettingsTabs"))
             {
-                ImGui.Checkbox("Debug Mode", ref this.Settings.DebugMode);
-                ImGui.SameLine();
-                ImGui.Checkbox("Trigger rules or execute Autoquit in Hideout", ref this.Settings.ShouldRunInHideout);
-                ImGuiHelper.ToolTip("The debug mode may prove to be a helpful tool in troubleshooting Auto HotKey Trigger profile rules that are not preforming as expected. " +
-                                    "It can also be used to verify if AutoHotKeyTrigger is spamming the profile rule action or not based on the included conditions of a given profile rule. " +
-                                    "It is highly suggested to create and test all new profiles/rules with the debug mode turned on to insure that all rules are preforming as expected.");
-                ImGuiHelper.NonContinuousEnumComboBox("Dump Player Status Effects",
-                    ref this.Settings.DumpStatusEffectOnMe);
-                ImGuiHelper.ToolTip($"This hotkey will dump the current active player's buff(s), debuff(s) into a text file in the GameHelper -> Plugins -> " +
-                                    $"AutoHotKeyTrigger folder. Use this hotkey if the AutoHotKeyTrigger plugin fails to detect for example: " +
-                                    $"bleeds, corrupting blood, poison, freeze, ignites or other de(buffs) currently active on the character.");
+                return;
+            }
+
+            if (ImGui.BeginTabItem("General"))
+            {
+                ImGui.Checkbox("Run in hideout", ref this.Settings.ShouldRunInHideout);
                 ImGuiHelper.IEnumerableComboBox("Profile", this.Settings.Profiles.Keys, ref this.Settings.CurrentProfile);
                 if (ImGui.Button("Add/Reset and Activate League Start Default Profile"))
                 {
                     this.CreateDefaultProfile();
                 }
+
+                ImGui.EndTabItem();
             }
 
-            if (ImGui.CollapsingHeader("Add New Profile"))
+            DynamicCondition.UpdateState();
+            if (ImGui.BeginTabItem("Profiles"))
             {
                 ImGui.InputText("Name", ref this.newProfileName, 100);
                 ImGui.SameLine();
@@ -96,14 +84,7 @@ namespace AutoHotKeyTrigger
                         this.newProfileName = string.Empty;
                     }
                 }
-            }
 
-            // separate update to allow settings to draw correctly,
-            // does not really hurt performance and only called
-            // when the settings window is open
-            DynamicCondition.UpdateState();
-            if (ImGui.CollapsingHeader("Existing Profiles"))
-            {
                 foreach (var (key, profile) in this.Settings.Profiles.ToArray())
                 {
                     var isOpened = ImGui.TreeNode($"{key} (?)");
@@ -133,9 +114,11 @@ namespace AutoHotKeyTrigger
                 }
 
                 this.clonesToAdd.RemoveAll(k => this.Settings.Profiles.TryAdd(k.name, k.value) || true); // remove even if add fails.
+
+                ImGui.EndTabItem();
             }
 
-            if (ImGui.CollapsingHeader("Auto Quit"))
+            if (ImGui.BeginTabItem("Auto Quit"))
             {
                 ImGui.PushItemWidth(ImGui.GetContentRegionAvail().X / 6);
                 ImGui.Checkbox("Enable AutoQuit", ref this.Settings.EnableAutoQuit);
@@ -146,7 +129,18 @@ namespace AutoHotKeyTrigger
                 ImGui.SameLine();
                 ImGuiHelper.NonContinuousEnumComboBox("##Manual Quit HotKey", ref this.Settings.AutoQuitKey);
                 ImGui.PopItemWidth();
+
+                ImGui.EndTabItem();
             }
+
+            if (ImGui.BeginTabItem("Debug"))
+            {
+                ImGui.Checkbox("Debug mode", ref this.Settings.DebugMode);
+                ImGuiHelper.NonContinuousEnumComboBox("Dump player status effects", ref this.Settings.DumpStatusEffectOnMe);
+                ImGui.EndTabItem();
+            }
+
+            ImGui.EndTabBar();
         }
 
         /// <inheritdoc />
