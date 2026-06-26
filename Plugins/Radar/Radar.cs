@@ -64,6 +64,8 @@ namespace Radar
         private readonly Dictionary<int, Vector2> poiIndexHalfSizeCache = new();
         private readonly Dictionary<uint, Vector2> largeMapInterpolatedPositions = new();
         private readonly Dictionary<uint, Vector2> miniMapInterpolatedPositions = new();
+        private readonly HashSet<uint> activeEntityIdsScratch = new();
+        private readonly List<uint> cachedEntityIdsScratch = new();
         private string debugSkipReason = "Not evaluated";
         private int debugEntitiesSeen;
         private int debugEntitiesValid;
@@ -1150,6 +1152,16 @@ namespace Radar
             ImGui.Checkbox("Show drawn entities table", ref this.Settings.ShowDrawnEntitiesTable);
             ImGui.Checkbox("Draw test icons around player", ref this.Settings.DrawTestIcons);
             ImGui.Checkbox("Draw debug projection circles", ref this.Settings.DrawDebugPrimitives);
+            if (ImGui.Button("Performance mode"))
+            {
+                this.Settings.ShowDebugOverlay = false;
+                this.Settings.ShowDrawnEntitiesTable = false;
+                this.Settings.DrawTestIcons = false;
+                this.Settings.DrawDebugPrimitives = false;
+                this.Settings.ShowPlayersNames = false;
+                this.Settings.ShowOriginalIconTexture = false;
+                this.Settings.EnablePOIBackground = false;
+            }
 
             ImGui.Separator();
             ImGui.TextWrapped("If your mini/large map icons are not working or visible, open this settings window, click anywhere on it, then hide it.");
@@ -1211,9 +1223,10 @@ namespace Radar
                 return;
             }
 
-            if (ImGui.BeginTable("RadarDisabledEntityPathFilters", 2, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
+            if (ImGui.BeginTable("RadarDisabledEntityPathFilters", 3, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
             {
                 ImGui.TableSetupColumn("Filter");
+                ImGui.TableSetupColumn("Mode", ImGuiTableColumnFlags.WidthFixed, 85f);
                 ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 90f);
                 ImGui.TableHeadersRow();
 
@@ -1222,6 +1235,8 @@ namespace Radar
                     ImGui.TableNextRow();
                     ImGui.TableNextColumn();
                     ImGui.TextUnformatted(filter);
+                    ImGui.TableNextColumn();
+                    ImGui.TextUnformatted(filter.EndsWith("/*", StringComparison.Ordinal) ? "prefix" : "contains");
                     ImGui.TableNextColumn();
                     if (ImGui.Button($"Remove##disabled_{filter.GetHashCode()}"))
                     {
@@ -1551,6 +1566,14 @@ namespace Radar
             ImGui.SameLine();
             ImGui.InputText("Filter", ref this.drawnEntityFilter, 160);
             ImGui.SameLine();
+            if (ImGui.Button("Performance mode##drawn_entities"))
+            {
+                this.Settings.ShowDrawnEntitiesTable = false;
+                this.Settings.ShowDebugOverlay = false;
+                this.Settings.DrawDebugPrimitives = false;
+            }
+
+            ImGui.SameLine();
             if (ImGui.Button("Clear disabled filters"))
             {
                 this.Settings.DisabledEntityPathFilters.Clear();
@@ -1567,7 +1590,7 @@ namespace Radar
                 .ThenBy(x => x.Path)
                 .ToArray();
 
-            if (ImGui.BeginTable("RadarDrawnEntitiesTable", 10, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY))
+            if (ImGui.BeginTable("RadarDrawnEntitiesTable", 11, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY))
             {
                 ImGui.TableSetupColumn("Count", ImGuiTableColumnFlags.WidthFixed, 55f);
                 ImGui.TableSetupColumn("Icon", ImGuiTableColumnFlags.WidthFixed, 150f);
@@ -1577,7 +1600,8 @@ namespace Radar
                 ImGui.TableSetupColumn("Dead", ImGuiTableColumnFlags.WidthFixed, 48f);
                 ImGui.TableSetupColumn("Tgt", ImGuiTableColumnFlags.WidthFixed, 42f);
                 ImGui.TableSetupColumn("Life", ImGuiTableColumnFlags.WidthFixed, 42f);
-                ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 105f);
+                ImGui.TableSetupColumn("Disable", ImGuiTableColumnFlags.WidthFixed, 158f);
+                ImGui.TableSetupColumn("Prefix", ImGuiTableColumnFlags.WidthFixed, 105f);
                 ImGui.TableSetupColumn("Path");
                 ImGui.TableHeadersRow();
 
@@ -1607,6 +1631,12 @@ namespace Radar
                     }
 
                     ImGui.TableNextColumn();
+                    if (ImGui.Button($"Similar##drawn_prefix_{row.Id}_{row.Icon}"))
+                    {
+                        this.AddDisabledPathFilter(ToPathPrefixFilter(row.Path));
+                    }
+
+                    ImGui.TableNextColumn();
                     ImGui.TextUnformatted(row.Path);
                 }
 
@@ -1624,31 +1654,25 @@ namespace Radar
                 return;
             }
 
-            if (!this.Settings.DisabledEntityPathFilters.Any(x => x.Equals(normalized, StringComparison.OrdinalIgnoreCase)))
+            PluginRuntimeHelper.AddUniquePathFilter(this.Settings.DisabledEntityPathFilters, normalized);
+        }
+
+        private static string ToPathPrefixFilter(string path)
+        {
+            var normalized = path.Trim();
+            var atIndex = normalized.IndexOf('@', StringComparison.Ordinal);
+            if (atIndex > 0)
             {
-                this.Settings.DisabledEntityPathFilters.Add(normalized);
+                normalized = normalized[..atIndex];
             }
+
+            var slashIndex = normalized.LastIndexOf('/');
+            return slashIndex > 0 ? $"{normalized[..slashIndex]}/*" : normalized;
         }
 
         private bool IsEntityPathDisabled(string path)
         {
-            return !string.IsNullOrWhiteSpace(path) &&
-                this.Settings.DisabledEntityPathFilters.Any(filter =>
-                    !string.IsNullOrWhiteSpace(filter) &&
-                    this.IsEntityPathFilterMatch(path, filter));
-        }
-
-        private bool IsEntityPathFilterMatch(string path, string filter)
-        {
-            var normalizedFilter = filter.Trim();
-            if (normalizedFilter.EndsWith("/*", StringComparison.Ordinal))
-            {
-                return path.StartsWith(
-                    normalizedFilter[..^1],
-                    StringComparison.OrdinalIgnoreCase);
-            }
-
-            return path.Contains(normalizedFilter, StringComparison.OrdinalIgnoreCase);
+            return PluginRuntimeHelper.IsPathDisabled(path, this.Settings.DisabledEntityPathFilters);
         }
 
         private void RecordDrawnEntity(
@@ -2138,23 +2162,13 @@ namespace Radar
             Vector2 currentPosition,
             Dictionary<uint, Vector2> positionCache)
         {
-            if (!this.Settings.InterpolatePositions)
-            {
-                positionCache.Remove(entityId);
-                return currentPosition;
-            }
-
             this.Settings.InterpolationRate = Math.Clamp(this.Settings.InterpolationRate, 1, 1000);
-            if (positionCache.TryGetValue(entityId, out var previousPosition))
-            {
-                currentPosition = MathHelper.Lerp(
-                    previousPosition,
-                    currentPosition,
-                    this.Settings.InterpolationRate / 1000f);
-            }
-
-            positionCache[entityId] = currentPosition;
-            return currentPosition;
+            return PluginRuntimeHelper.InterpolatePosition(
+                entityId,
+                currentPosition,
+                positionCache,
+                this.Settings.InterpolatePositions,
+                this.Settings.InterpolationRate);
         }
 
         private void PruneInterpolatedPositionCache(
@@ -2166,14 +2180,11 @@ namespace Radar
                 return;
             }
 
-            var activeIds = area.AwakeEntities.Values.Select(entity => entity.Id).ToHashSet();
-            foreach (var cachedId in positionCache.Keys.ToArray())
-            {
-                if (!activeIds.Contains(cachedId))
-                {
-                    positionCache.Remove(cachedId);
-                }
-            }
+            PluginRuntimeHelper.PrunePositionCache(
+                area,
+                positionCache,
+                this.activeEntityIdsScratch,
+                this.cachedEntityIdsScratch);
         }
 
         private void ClearInterpolatedPositionCaches()

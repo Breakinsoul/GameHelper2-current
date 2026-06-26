@@ -52,6 +52,8 @@ namespace HealthBars
         private readonly TextureLoader textures = new();
 
         private readonly Dictionary<uint, Vector2> bPositions = new();
+        private readonly HashSet<uint> activeEntityIdsScratch = new();
+        private readonly List<uint> cachedEntityIdsScratch = new();
 
         private ActiveCoroutine? onAreaChange = null;
 
@@ -377,6 +379,23 @@ namespace HealthBars
                 ImGui.EndTable();
             }
 
+            if (ImGui.Button("Show all"))
+            {
+                this.SetMonsterVisibility(normal: true, magic: true, rare: true, unique: true, friendly: true, poi: true);
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Rares + uniques"))
+            {
+                this.SetMonsterVisibility(normal: false, magic: false, rare: true, unique: true, friendly: false, poi: true);
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Uniques only"))
+            {
+                this.SetMonsterVisibility(normal: false, magic: false, rare: false, unique: true, friendly: false, poi: true);
+            }
+
             ImGui.SeparatorText("Cull strike thresholds");
             ImGui.TextUnformatted("white       magic       rare        unique");
             ImGui.DragInt4("Percent health", ref this.Settings.CullingStrikeRangePerRarity[0], 1, 0, 100);
@@ -593,6 +612,16 @@ namespace HealthBars
             }
         }
 
+        private void SetMonsterVisibility(bool normal, bool magic, bool rare, bool unique, bool friendly, bool poi)
+        {
+            this.Settings.ShowNormalMonsters = normal;
+            this.Settings.ShowMagicMonsters = magic;
+            this.Settings.ShowRareMonsters = rare;
+            this.Settings.ShowUniqueMonsters = unique;
+            this.Settings.ShowFriendlyMonsters = friendly;
+            this.Settings.ShowPoiMonsters = poi;
+        }
+
         private void ApplyScale(string key, Vector2 scale, bool showText)
         {
             if (!this.Settings.Monster.TryGetValue(key, out var config))
@@ -628,7 +657,8 @@ namespace HealthBars
             curPos.Z -= rComp.ModelBounds.Z + healthbarConfig.Shift.Y;
             var location = Core.States.InGameStateObject.CurrentWorldInstance.WorldToScreen(curPos, curPos.Z);
             location.X += healthbarConfig.Shift.X;
-            var isProjectedOutsideScreen = this.IsOutsideScreen(location, healthbarConfig.HalfOfScale);
+            var screenCullMargin = Vector2.One * (MathF.Max(healthbarConfig.HalfOfScale.X, healthbarConfig.HalfOfScale.Y) + 8f);
+            var isProjectedOutsideScreen = PluginRuntimeHelper.IsOutsideScreen(location, screenCullMargin);
             if (isProjectedOutsideScreen && this.Settings.CullOutsideScreen)
             {
                 this.bPositions.Remove(entity.Id);
@@ -862,23 +892,11 @@ namespace HealthBars
                 return;
             }
 
-            var activeIds = area.AwakeEntities.Values.Select(entity => entity.Id).ToHashSet();
-            foreach (var cachedId in this.bPositions.Keys.ToArray())
-            {
-                if (!activeIds.Contains(cachedId))
-                {
-                    this.bPositions.Remove(cachedId);
-                }
-            }
-        }
-
-        private bool IsOutsideScreen(Vector2 location, Vector2 halfScale)
-        {
-            var margin = MathF.Max(halfScale.X, halfScale.Y) + 8f;
-            return location.X < -margin ||
-                location.Y < -margin ||
-                location.X > Core.Process.WindowArea.Width + margin ||
-                location.Y > Core.Process.WindowArea.Height + margin;
+            PluginRuntimeHelper.PrunePositionCache(
+                area,
+                this.bPositions,
+                this.activeEntityIdsScratch,
+                this.cachedEntityIdsScratch);
         }
 
         private static int ClampPercent(int value)

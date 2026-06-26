@@ -218,6 +218,7 @@
 
         private void DrawGeneralSettings()
         {
+            this.DrawRuntimeStatus();
             ImGui.Checkbox("Show price window", ref this.Settings.ShowWindow);
             ImGui.Checkbox("Show inline price hints", ref this.Settings.ShowInlinePriceHints);
             ImGui.Checkbox("Auto refresh prices", ref this.Settings.AutoRefresh);
@@ -387,6 +388,22 @@
                 }
 
                 ImGui.EndTable();
+            }
+        }
+
+        private void DrawRuntimeStatus()
+        {
+            var refreshAge = this.lastRefreshUtc == DateTimeOffset.MinValue
+                ? "never"
+                : $"{(DateTimeOffset.UtcNow - this.lastRefreshUtc).TotalMinutes:0.#}m ago";
+            ImGui.TextUnformatted($"Prices: {this.prices.Count} cached / {this.rows.Count} rows");
+            ImGui.SameLine();
+            ImGui.TextDisabled($"last refresh: {refreshAge}");
+            ImGui.SameLine();
+            ImGui.TextDisabled(this.Settings.EnableOcr ? $"OCR: {this.ocrStatus}" : "OCR: off");
+            if (this.Settings.EnableOcr && !Core.Process.Foreground)
+            {
+                ImGui.TextColored(new Vector4(1f, 0.78f, 0.25f, 1f), "OCR is enabled but the game is not foreground.");
             }
         }
 

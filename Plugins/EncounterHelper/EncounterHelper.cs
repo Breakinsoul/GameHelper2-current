@@ -150,7 +150,7 @@ namespace EncounterHelper
                     continue;
                 }
 
-                if (!entity.TryGetComponent<Render>(out var render, false))
+                if (!PluginRuntimeHelper.TryProjectEntityToScreen(entity, out var render, out var screen, useCache: false))
                 {
                     this.skippedNoRender++;
                     continue;
@@ -165,7 +165,6 @@ namespace EncounterHelper
                     continue;
                 }
 
-                var screen = Core.States.InGameStateObject.CurrentWorldInstance.WorldToScreen(render.WorldPosition, render.WorldPosition.Z);
                 if (screen.X < 0 || screen.Y < 0 || screen.X > width || screen.Y > height)
                 {
                     this.skippedOutsideScreen++;
@@ -236,7 +235,7 @@ namespace EncounterHelper
                     continue;
                 }
 
-                if (entity.Path.Contains(rule.PathContains, StringComparison.OrdinalIgnoreCase))
+                if (PluginRuntimeHelper.IsPathFilterMatch(entity.Path, rule.PathContains))
                 {
                     return rule;
                 }
@@ -305,9 +304,10 @@ namespace EncounterHelper
 
         private void DrawRulesSettings()
         {
-            if (ImGui.BeginTable("EncounterRules", 8, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY, new Vector2(0f, 420f)))
+            if (ImGui.BeginTable("EncounterRules", 9, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY, new Vector2(0f, 420f)))
             {
                 ImGui.TableSetupColumn("On", ImGuiTableColumnFlags.WidthFixed, 38f);
+                ImGui.TableSetupColumn("Now", ImGuiTableColumnFlags.WidthFixed, 48f);
                 ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthFixed, 120f);
                 ImGui.TableSetupColumn("Path contains", ImGuiTableColumnFlags.WidthStretch);
                 ImGui.TableSetupColumn("Shape", ImGuiTableColumnFlags.WidthFixed, 105f);
@@ -325,6 +325,9 @@ namespace EncounterHelper
 
                     ImGui.TableNextColumn();
                     ImGui.Checkbox("##enabled", ref rule.Enabled);
+
+                    ImGui.TableNextColumn();
+                    ImGui.TextUnformatted(this.matchCounts.GetValueOrDefault(rule.Name).ToString());
 
                     ImGui.TableNextColumn();
                     var name = rule.Name;

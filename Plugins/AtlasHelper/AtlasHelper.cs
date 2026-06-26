@@ -19,6 +19,7 @@ namespace AtlasHelper
         private readonly List<AtlasLiveNode> liveNodes = [];
         private string liveNodeSource = "none";
         private string captureStatus = string.Empty;
+        private string liveNodeFilter = string.Empty;
         private DateTimeOffset lastCaptureAt = DateTimeOffset.MinValue;
         private DateTimeOffset lastLiveNodeRefreshAt = DateTimeOffset.MinValue;
 
@@ -101,8 +102,9 @@ namespace AtlasHelper
             ImGui.Checkbox("Show node window", ref this.Settings.ShowWindow);
             ImGui.Checkbox("Hide when game is in background", ref this.Settings.HideWhenGameInBackground);
             ImGui.Checkbox("Draw live atlas nodes", ref this.Settings.DrawLiveAtlasNodes);
-            ImGui.Checkbox("Draw map names", ref this.Settings.DrawMapNames);
-            ImGui.Checkbox("Draw node ids", ref this.Settings.DrawNodeIds);
+            var labelModes = new[] { "Hover only", "Map names", "Node ids", "Map + id", "Raw keys" };
+            this.Settings.LabelMode = Math.Clamp(this.Settings.LabelMode, 0, labelModes.Length - 1);
+            ImGui.Combo("Label mode", ref this.Settings.LabelMode, labelModes, labelModes.Length);
             ImGui.Checkbox("Draw raw keys", ref this.Settings.DrawRawKeys);
             ImGui.Checkbox("Draw hidden nodes", ref this.Settings.DrawHiddenNodes);
             ImGui.Checkbox("Capture UI tree with node dump", ref this.Settings.CaptureUiTree);
@@ -127,6 +129,57 @@ namespace AtlasHelper
             {
                 ImGui.TextWrapped(this.captureStatus);
             }
+
+            this.DrawLiveNodeTable();
+        }
+
+        private void DrawLiveNodeTable()
+        {
+            if (!ImGui.CollapsingHeader("Live node table"))
+            {
+                return;
+            }
+
+            ImGui.InputText("Search##atlas_live_node_filter", ref this.liveNodeFilter, 128);
+            var rows = this.liveNodes
+                .Where(node => string.IsNullOrWhiteSpace(this.liveNodeFilter) ||
+                    node.Id.ToString().Contains(this.liveNodeFilter, StringComparison.OrdinalIgnoreCase) ||
+                    node.MapName.Contains(this.liveNodeFilter, StringComparison.OrdinalIgnoreCase) ||
+                    node.BiomeName.Contains(this.liveNodeFilter, StringComparison.OrdinalIgnoreCase) ||
+                    node.RawKey.ToString("X").Contains(this.liveNodeFilter, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
+            if (!ImGui.BeginTable("AtlasHelperLiveNodeTable", 6, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY, new Vector2(0f, 240f)))
+            {
+                return;
+            }
+
+            ImGui.TableSetupColumn("Id", ImGuiTableColumnFlags.WidthFixed, 76f);
+            ImGui.TableSetupColumn("State", ImGuiTableColumnFlags.WidthFixed, 72f);
+            ImGui.TableSetupColumn("Map");
+            ImGui.TableSetupColumn("Biome", ImGuiTableColumnFlags.WidthFixed, 110f);
+            ImGui.TableSetupColumn("Raw key", ImGuiTableColumnFlags.WidthFixed, 136f);
+            ImGui.TableSetupColumn("Screen", ImGuiTableColumnFlags.WidthFixed, 110f);
+            ImGui.TableHeadersRow();
+
+            foreach (var node in rows)
+            {
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(node.Id.ToString());
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(node.IsAccessible ? "access" : "hidden");
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(Fallback(node.MapName, "-"));
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(Fallback(node.BiomeName, "-"));
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted($"0x{node.RawKey:X}");
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted($"{node.Center.X:0},{node.Center.Y:0}");
+            }
+
+            ImGui.EndTable();
         }
 
         private void UpdateLiveAtlasNodes()
@@ -206,17 +259,20 @@ namespace AtlasHelper
                         $"Atlas node\nmap: {Fallback(node.MapName, "(unknown)")}\nbiome: {Fallback(node.BiomeName, "(unknown)")}\nid: {node.Id}\naddr: 0x{node.Address.ToInt64():X}\nchild: 0x{node.ChildAddress.ToInt64():X}\nrawX/rawY: {node.RawX}/{node.RawY}\nrawState: 0x{node.RawState:X}\nrawKey: 0x{node.RawKey:X16}\nCtrl+Click: dump nearest node data");
                 }
 
-                if (this.Settings.DrawMapNames && !string.IsNullOrWhiteSpace(node.MapName))
+                var drawMapName = this.Settings.LabelMode is 1 or 3 && !string.IsNullOrWhiteSpace(node.MapName);
+                var drawNodeId = this.Settings.LabelMode is 2 or 3;
+                var drawRawKey = this.Settings.LabelMode == 4 || this.Settings.DrawRawKeys;
+                if (drawMapName)
                 {
                     draw.AddText(center + new Vector2(7f, -7f), labelColor, node.MapName);
                 }
 
-                if (this.Settings.DrawNodeIds)
+                if (drawNodeId)
                 {
-                    draw.AddText(center + new Vector2(7f, this.Settings.DrawMapNames ? 8f : -7f), labelColor, node.Id.ToString());
+                    draw.AddText(center + new Vector2(7f, drawMapName ? 8f : -7f), labelColor, node.Id.ToString());
                 }
 
-                if (this.Settings.DrawRawKeys)
+                if (drawRawKey)
                 {
                     draw.AddText(center + new Vector2(7f, 8f), labelColor, $"0x{node.RawKey:X}");
                 }

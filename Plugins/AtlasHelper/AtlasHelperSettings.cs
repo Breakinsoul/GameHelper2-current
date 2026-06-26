@@ -17,6 +17,8 @@ namespace AtlasHelper
 
         public bool DrawRawKeys;
 
+        public int LabelMode = 1;
+
         public bool DrawHiddenNodes;
 
         public bool CaptureUiTree;

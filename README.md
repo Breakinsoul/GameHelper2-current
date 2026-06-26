@@ -5,11 +5,39 @@ GameHelper2 is a Windows x64 .NET overlay application with a launcher, GitHub-ba
 Current release stream:
 
 - Repository: `Breakinsoul/GameHelper2-current`
-- Current app version: `2.3.11`
+- Current app version: `2.3.12`
 - Latest release asset pattern: `GameHelper*.zip`
 - Update configuration: `Launcher/updater.json`
 
 The launcher checks GitHub Releases, downloads the latest matching ZIP, applies the update through the launcher-native `--apply-update` mode, and restarts the application.
+
+## Version History
+
+### v2.3.12
+
+- Added shared plugin runtime helpers for path filters, interpolation caches, screen projection, and screen bounds checks.
+- Improved Radar settings UX with filter modes, quick prefix disable actions, and performance mode.
+- Improved HealthBars settings with visibility presets and shared cache/screen helpers.
+- Improved EncounterHelper rules table with live per-rule match counters and shared wildcard matching.
+- Improved AtlasHelper with label modes and a searchable live node table.
+- Improved RuneshapePriceChecker settings with compact runtime/OCR status.
+
+### v2.3.11
+
+- Published the current source snapshot.
+- Bumped application metadata and README release instructions to `2.3.11`.
+- Included current plugin changes in the source tree.
+
+### v2.3.10
+
+- Updated current game offsets for player, entity lists, and terrain metadata.
+- Restored Radar and HealthBars entity reads after the game patch.
+- Added Radar default ignored entity path filters and wildcard prefix matching.
+- Disabled temporary diagnostics in the release package.
+
+### v2.3.9
+
+- Current release stream baseline before the latest offset and plugin UX updates.
 
 ## Requirements
 
@@ -158,7 +186,7 @@ After a successful release build, package the main runtime output folder:
 ```powershell
 $out = Resolve-Path "GameHelper\bin\Release\net10.0-windows\win-x64"
 New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-Compress-Archive -Path (Join-Path $out "*") -DestinationPath "artifacts\GameHelper-v2.3.11.zip" -Force
+Compress-Archive -Path (Join-Path $out "*") -DestinationPath "artifacts\GameHelper-v2.3.12.zip" -Force
 ```
 
 The ZIP should contain the application root directly, not a nested parent folder.
@@ -175,7 +203,7 @@ updater.json
 Wrong:
 
 ```text
-GameHelper-v2.3.11/GameHelper.exe
+GameHelper-v2.3.12/GameHelper.exe
 ```
 
 ## Publish A GitHub Release
@@ -183,9 +211,9 @@ GameHelper-v2.3.11/GameHelper.exe
 Example using GitHub CLI:
 
 ```powershell
-gh release create v2.3.11 artifacts\GameHelper-v2.3.11.zip `
+gh release create v2.3.12 artifacts\GameHelper-v2.3.12.zip `
   -R Breakinsoul/GameHelper2-current `
-  --title "v2.3.11 current release" `
+  --title "v2.3.12 current release" `
   --notes "Update offsets for the current game patch." `
   --latest
 ```
@@ -199,7 +227,7 @@ The updater reads the latest non-prerelease GitHub release and downloads the fir
 ## Test Updating
 
 1. Install or run an older release, for example `v2.3.5`.
-2. Publish a newer release, for example `v2.3.11`.
+2. Publish a newer release, for example `v2.3.12`.
 3. Start the older app through `Launcher.exe`.
 4. The launcher checks GitHub Releases.
 5. If the latest release version is newer, the launcher downloads the ZIP.
@@ -234,7 +262,7 @@ Breakinsoul/GameHelper2-current
 Also check that the newest GitHub Release is marked as latest and has a ZIP asset named like:
 
 ```text
-GameHelper-v2.3.11.zip
+GameHelper-v2.3.12.zip
 ```
 
 ### GitHub shows old source code
