@@ -142,16 +142,25 @@ namespace AreaTracker
                 return;
             }
 
-            ImGui.SetNextWindowSize(new Vector2(620f, 360f), ImGuiCond.FirstUseEver);
+            if (this.Settings.WindowPos != Vector2.Zero)
+            {
+                ImGui.SetNextWindowPos(this.Settings.WindowPos, ImGuiCond.FirstUseEver);
+            }
+
+            ImGui.SetNextWindowSize(this.Settings.WindowSize, ImGuiCond.FirstUseEver);
             var show = this.Settings.ShowWindow;
             if (!ImGui.Begin("Area Tracker", ref show))
             {
                 this.Settings.ShowWindow = show;
+                this.Settings.WindowPos = ImGui.GetWindowPos();
+                this.Settings.WindowSize = ImGui.GetWindowSize();
                 ImGui.End();
                 return;
             }
 
             this.Settings.ShowWindow = show;
+            this.Settings.WindowPos = ImGui.GetWindowPos();
+            this.Settings.WindowSize = ImGui.GetWindowSize();
             this.DrawWindow();
             ImGui.End();
         }

@@ -6,6 +6,7 @@ namespace GameHelper.Settings
 {
     using System.Collections.Generic;
     using System.IO;
+    using System.Numerics;
     using ClickableTransparentOverlay;
     using ClickableTransparentOverlay.Win32;
     using GameHelper.RemoteEnums;
@@ -72,6 +73,16 @@ namespace GameHelper.Settings
         ///     Gets a value indicating whether user wants to hide the overlay on start or not.
         /// </summary>
         public bool HideSettingWindowOnStart = false;
+
+        /// <summary>
+        ///     Gets or sets the last settings window position.
+        /// </summary>
+        public Vector2 SettingsWindowPosition = Vector2.Zero;
+
+        /// <summary>
+        ///     Gets or sets the last settings window size.
+        /// </summary>
+        public Vector2 SettingsWindowSize = new(1180f, 720f);
 
         /// <summary>
         ///     Gets or sets a value indicating whether the overlay is running or not.

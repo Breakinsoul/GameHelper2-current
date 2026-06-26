@@ -38,6 +38,10 @@ namespace EncounterHelper
 
         public bool ShowOnlyMatchedSummary = true;
 
+        public Vector2 SummaryWindowPos = Vector2.Zero;
+
+        public Vector2 SummaryWindowSize = new(300f, 220f);
+
         public float MaxGridDistance = 500f;
 
         public List<EncounterRule> Rules =

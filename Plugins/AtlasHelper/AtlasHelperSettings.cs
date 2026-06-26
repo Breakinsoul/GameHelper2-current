@@ -21,6 +21,8 @@ namespace AtlasHelper
 
         public bool CaptureUiTree;
 
+        public Vector2 WindowPos = Vector2.Zero;
+
         public Vector2 WindowSize = new(520f, 360f);
 
         public Vector2 AnchorNudge = Vector2.Zero;

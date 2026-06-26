@@ -73,16 +73,24 @@ namespace AtlasHelper
 
         private void DrawNodeWindow()
         {
+            if (this.Settings.WindowPos != Vector2.Zero)
+            {
+                ImGui.SetNextWindowPos(this.Settings.WindowPos, ImGuiCond.FirstUseEver);
+            }
+
             ImGui.SetNextWindowSize(this.Settings.WindowSize, ImGuiCond.FirstUseEver);
             var show = this.Settings.ShowWindow;
             if (!ImGui.Begin("Atlas Nodes##AtlasHelper", ref show))
             {
                 this.Settings.ShowWindow = show;
+                this.Settings.WindowPos = ImGui.GetWindowPos();
+                this.Settings.WindowSize = ImGui.GetWindowSize();
                 ImGui.End();
                 return;
             }
 
             this.Settings.ShowWindow = show;
+            this.Settings.WindowPos = ImGui.GetWindowPos();
             this.Settings.WindowSize = ImGui.GetWindowSize();
             this.DrawControls();
             ImGui.End();

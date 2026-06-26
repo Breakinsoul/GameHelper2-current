@@ -186,12 +186,22 @@ namespace EncounterHelper
 
         private void DrawSummary(AreaInstance area)
         {
-            ImGui.SetNextWindowSize(new Vector2(300f, 220f), ImGuiCond.FirstUseEver);
+            if (this.Settings.SummaryWindowPos != Vector2.Zero)
+            {
+                ImGui.SetNextWindowPos(this.Settings.SummaryWindowPos, ImGuiCond.FirstUseEver);
+            }
+
+            ImGui.SetNextWindowSize(this.Settings.SummaryWindowSize, ImGuiCond.FirstUseEver);
             if (!ImGui.Begin("Encounter Helper"))
             {
+                this.Settings.SummaryWindowPos = ImGui.GetWindowPos();
+                this.Settings.SummaryWindowSize = ImGui.GetWindowSize();
                 ImGui.End();
                 return;
             }
+
+            this.Settings.SummaryWindowPos = ImGui.GetWindowPos();
+            this.Settings.SummaryWindowSize = ImGui.GetWindowSize();
 
             ImGui.Text($"Area: {area.AreaHash}");
             ImGui.Text($"Matched: {this.seen}");

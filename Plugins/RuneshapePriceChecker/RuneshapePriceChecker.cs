@@ -34,11 +34,13 @@
         private static readonly Regex NonAlphaNumeric = new("[^A-Za-z0-9]+", RegexOptions.Compiled);
         private static readonly Regex TrailingLevel = new("\\s+LEVEL\\s+\\d+$", RegexOptions.Compiled);
         private static readonly Regex TrailingOrb = new("\\s+ORB$", RegexOptions.Compiled);
+        private static readonly Regex PriceHintLine = new("^\\s*\\d+(?:[,.]\\d+)?\\s*(?:[?\\s]*)?(?:c|ch|chaos|d|div|divine|e?x|exalt|exalted|x)\\s*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private readonly HttpClient httpClient = new();
         private readonly Dictionary<string, decimal> prices = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, decimal> fallbackPrices = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<PriceRow> rows = [];
+        private readonly object ocrPreviewLock = new();
         private CancellationTokenSource? refreshCts;
         private Task? refreshTask;
         private DateTimeOffset lastRefreshUtc = DateTimeOffset.MinValue;
@@ -58,10 +60,20 @@
         private long lastOcrFrameHash;
         private int skippedOcrFrames;
         private int sourceLineCount = 1;
+        private bool ocrSkippedUnchangedFrame;
+        private int ocrPreviewVersion;
+        private int loadedOcrPreviewVersion = -1;
+        private IntPtr ocrPreviewTexture = IntPtr.Zero;
+        private Vector2 ocrPreviewSize = Vector2.Zero;
+        private string ocrPreviewStatus = "No OCR image captured yet.";
 
         private string SettingPathname => Path.Join(this.DllDirectory, "config", "settings.txt");
 
+        private string OcrPreviewPathname => Path.Join(this.DllDirectory, "cache", "ocr-preview.png");
+
         private sealed record OcrLine(string Text, Vector2 HintPosition);
+
+        private sealed record OcrRow(Rectangle Bounds, Vector2 HintPosition);
 
         public override void OnEnable(bool isGameOpened)
         {
@@ -89,6 +101,7 @@
             this.ocrCts?.Cancel();
             this.ocrCts?.Dispose();
             this.ocrCts = null;
+            this.RemoveOcrPreviewTexture();
         }
 
         public override void SaveSettings()
@@ -118,6 +131,12 @@
             if (ImGui.BeginTabItem("OCR"))
             {
                 this.DrawOcrSettings();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("OCR Image"))
+            {
+                this.DrawOcrImageSettings();
                 ImGui.EndTabItem();
             }
 
@@ -292,6 +311,41 @@
             ImGui.InputTextMultiline("##ocr-text", ref this.ocrText, 8192, new Vector2(0f, 180f), ImGuiInputTextFlags.ReadOnly);
         }
 
+        private void DrawOcrImageSettings()
+        {
+            if (ImGui.Button(this.IsOcrRunning ? "Reading..." : "Update OCR image"))
+            {
+                this.StartOcr(force: true);
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Reload preview texture"))
+            {
+                lock (this.ocrPreviewLock)
+                {
+                    this.ocrPreviewVersion++;
+                }
+            }
+
+            ImGui.TextWrapped(this.ocrPreviewStatus);
+            ImGui.TextDisabled(this.OcrPreviewPathname);
+            this.TryLoadOcrPreviewTexture();
+
+            if (this.ocrPreviewTexture == IntPtr.Zero || this.ocrPreviewSize == Vector2.Zero)
+            {
+                ImGui.TextDisabled("No image to show yet. Press Update OCR image while the runeshape panel is visible.");
+                return;
+            }
+
+            var availableWidth = Math.Max(120f, ImGui.GetContentRegionAvail().X);
+            var maxHeight = 520f;
+            var scale = Math.Min(1f, Math.Min(availableWidth / this.ocrPreviewSize.X, maxHeight / this.ocrPreviewSize.Y));
+            var imageSize = new Vector2(
+                Math.Max(1f, this.ocrPreviewSize.X * scale),
+                Math.Max(1f, this.ocrPreviewSize.Y * scale));
+            ImGui.Image(this.ocrPreviewTexture, imageSize);
+        }
+
         private void DrawDebugSettings()
         {
             ImGui.Text($"Cached prices: {this.prices.Count}");
@@ -459,6 +513,7 @@
             this.ocrCts = new CancellationTokenSource();
             this.ocrStatus = "Reading OCR...";
             this.ocrError = string.Empty;
+            this.ocrSkippedUnchangedFrame = false;
             if (force)
             {
                 this.lastOcrFrameHash = 0;
@@ -493,12 +548,22 @@
                     this.lastOcrCompletedUtc = DateTimeOffset.UtcNow;
                     if (result.Count == 0)
                     {
-                        this.ocrStatus = $"OCR skipped unchanged frame ({this.skippedOcrFrames}).";
+                        this.ocrStatus = this.ocrSkippedUnchangedFrame
+                            ? $"OCR skipped unchanged frame ({this.skippedOcrFrames})."
+                            : "OCR completed with no text.";
+                        if (!this.ocrSkippedUnchangedFrame)
+                        {
+                            this.ocrLines = [];
+                            this.ocrText = string.Empty;
+                            this.rows.Clear();
+                            this.sourceLineCount = 1;
+                            this.manualItemsDirty = false;
+                        }
                     }
                     else
                     {
-                        this.ocrLines = result;
-                        this.ocrText = this.CleanOcrText(string.Join('\n', result.Select(line => line.Text)));
+                        this.ocrLines = CleanOcrLines(result);
+                        this.ocrText = string.Join('\n', this.ocrLines.Select(line => line.Text));
                         this.ocrStatus = string.IsNullOrWhiteSpace(this.ocrText)
                             ? "OCR completed with no text."
                             : $"OCR completed: {this.ocrText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length} rows.";
@@ -529,6 +594,7 @@
             if (this.Settings.OcrUseFrameHash && frameHash != 0 && frameHash == this.lastOcrFrameHash)
             {
                 this.skippedOcrFrames++;
+                this.ocrSkippedUnchangedFrame = true;
                 return [];
             }
 
@@ -537,26 +603,36 @@
             var captureX = Math.Clamp(game.Left + this.Settings.OcrOffsetX, game.Left, game.Right - 1);
             var captureY = Math.Clamp(game.Top + this.Settings.OcrOffsetY, game.Top, game.Bottom - 1);
             var upscale = Math.Clamp(this.Settings.OcrUpscale, 1, 4);
-            using var prepared = this.PrepareBitmapForOcr(textBitmap);
-            using var stream = new MemoryStream();
-            prepared.Save(stream, ImageFormat.Bmp);
-            var randomAccessStream = stream.ToArray().AsBuffer().AsStream().AsRandomAccessStream();
-            var decoder = await BitmapDecoder.CreateAsync(randomAccessStream);
-            using var softwareBitmap = await decoder.GetSoftwareBitmapAsync();
-            ct.ThrowIfCancellationRequested();
-            var result = await this.windowsOcrEngine.RecognizeAsync(softwareBitmap);
-            return result.Lines
-                .Where(line => line.Words.Count > 0)
-                .Select(line =>
-                {
-                    var text = string.Join(" ", line.Words.Select(word => word.Text));
-                    var rect = UnionWordBounds(line.Words.Select(word => word.BoundingRect));
-                    var hintPos = new Vector2(
-                        captureX + textInsetLeft + ((float)(rect.X + rect.Width) / upscale) + 8f,
-                        captureY + ((float)(rect.Y + (rect.Height * 0.5)) / upscale) - 9f);
-                    return new OcrLine(text, hintPos);
-                })
+            using var textOnlyBitmap = this.KeepTextAndNeighbors(textBitmap);
+            using var prepared = this.PrepareBitmapForOcr(textOnlyBitmap);
+            var contentBounds = FindContentBounds(prepared);
+            var rows = DetectOcrRows(prepared, contentBounds)
+                .Select(row => new OcrRow(
+                    row,
+                    new Vector2(
+                        captureX + textInsetLeft + ((float)(row.X + row.Width) / upscale) + 8f,
+                        captureY + ((float)(row.Y + (row.Height * 0.5)) / upscale) - 9f)))
                 .ToList();
+
+            this.SaveOcrPreview(prepared, contentBounds, rows.Select(row => row.Bounds));
+            if (rows.Count == 0)
+            {
+                return [];
+            }
+
+            var recognized = new List<OcrLine>(rows.Count);
+            foreach (var row in rows)
+            {
+                ct.ThrowIfCancellationRequested();
+                using var rowBitmap = this.PrepareRowBitmapForOcr(prepared, row.Bounds);
+                var text = await this.RecognizeBitmapTextAsync(rowBitmap, ct);
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    recognized.Add(new OcrLine(text, row.HintPosition));
+                }
+            }
+
+            return recognized;
         }
 
         private Bitmap CaptureOcrRegion()
@@ -629,6 +705,386 @@
             graphics.DrawImage(source, new Rectangle(0, 0, target.Width, target.Height));
             this.ApplyOcrPreprocessing(target);
             return target;
+        }
+
+        private Bitmap PrepareRowBitmapForOcr(Bitmap source, Rectangle rowBounds)
+        {
+            var padX = 4;
+            var padY = 2;
+            var x = Math.Max(0, rowBounds.X - padX);
+            var y = Math.Max(0, rowBounds.Y - padY);
+            var right = Math.Min(source.Width, rowBounds.Right + padX);
+            var bottom = Math.Min(source.Height, rowBounds.Bottom + padY);
+            var crop = new Rectangle(x, y, Math.Max(1, right - x), Math.Max(1, bottom - y));
+            using var row = this.CropBitmap(source, crop.X, crop.Y, crop.Width, crop.Height);
+            return AddWhiteBorder(row, 2);
+        }
+
+        private async Task<string> RecognizeBitmapTextAsync(Bitmap bitmap, CancellationToken ct)
+        {
+            if (this.windowsOcrEngine == null)
+            {
+                return string.Empty;
+            }
+
+            using var stream = new MemoryStream();
+            bitmap.Save(stream, ImageFormat.Bmp);
+            var randomAccessStream = stream.ToArray().AsBuffer().AsStream().AsRandomAccessStream();
+            var decoder = await BitmapDecoder.CreateAsync(randomAccessStream);
+            using var softwareBitmap = await decoder.GetSoftwareBitmapAsync();
+            ct.ThrowIfCancellationRequested();
+            var result = await this.windowsOcrEngine.RecognizeAsync(softwareBitmap);
+            return string.Join(
+                " ",
+                result.Lines
+                    .Where(line => line.Words.Count > 0)
+                    .Select(line => string.Join(" ", line.Words.Select(word => word.Text))));
+        }
+
+        private void SaveOcrPreview(Bitmap bitmap, Rectangle? contentBounds, IEnumerable<Rectangle> rowBounds)
+        {
+            try
+            {
+                var directory = Path.GetDirectoryName(this.OcrPreviewPathname);
+                if (!string.IsNullOrWhiteSpace(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                using var preview = (Bitmap)bitmap.Clone();
+                using (var graphics = Graphics.FromImage(preview))
+                {
+                    if (contentBounds.HasValue)
+                    {
+                        using var contentPen = new Pen(Color.FromArgb(220, 30, 180, 80), 2f);
+                        graphics.DrawRectangle(contentPen, contentBounds.Value);
+                    }
+
+                    using var rowPen = new Pen(Color.FromArgb(230, 200, 50, 220), 2f);
+                    foreach (var row in rowBounds)
+                    {
+                        graphics.DrawRectangle(rowPen, row);
+                    }
+                }
+
+                preview.Save(this.OcrPreviewPathname, ImageFormat.Png);
+                lock (this.ocrPreviewLock)
+                {
+                    this.ocrPreviewVersion++;
+                    this.ocrPreviewStatus = $"OCR image updated: {bitmap.Width}x{bitmap.Height}, {DateTimeOffset.Now:HH:mm:ss}. Green = content bounds, purple = OCR rows.";
+                }
+            }
+            catch (Exception ex)
+            {
+                lock (this.ocrPreviewLock)
+                {
+                    this.ocrPreviewStatus = $"Failed to save OCR image: {ex.Message}";
+                }
+            }
+        }
+
+        private void TryLoadOcrPreviewTexture()
+        {
+            int version;
+            lock (this.ocrPreviewLock)
+            {
+                version = this.ocrPreviewVersion;
+            }
+
+            if (version == this.loadedOcrPreviewVersion)
+            {
+                return;
+            }
+
+            this.RemoveOcrPreviewTexture();
+            if (!File.Exists(this.OcrPreviewPathname))
+            {
+                this.loadedOcrPreviewVersion = version;
+                return;
+            }
+
+            try
+            {
+                Core.Overlay.AddOrGetImagePointer(this.OcrPreviewPathname, false, out var texture, out var width, out var height);
+                this.ocrPreviewTexture = texture;
+                this.ocrPreviewSize = new Vector2(width, height);
+                this.loadedOcrPreviewVersion = version;
+            }
+            catch (Exception ex)
+            {
+                this.loadedOcrPreviewVersion = version;
+                lock (this.ocrPreviewLock)
+                {
+                    this.ocrPreviewStatus = $"Failed to load OCR image preview: {ex.Message}";
+                }
+            }
+        }
+
+        private void RemoveOcrPreviewTexture()
+        {
+            if (this.ocrPreviewTexture != IntPtr.Zero)
+            {
+                Core.Overlay.RemoveImage(this.OcrPreviewPathname);
+            }
+
+            this.ocrPreviewTexture = IntPtr.Zero;
+            this.ocrPreviewSize = Vector2.Zero;
+        }
+
+        private Bitmap KeepTextAndNeighbors(Bitmap source)
+        {
+            var rect = new Rectangle(0, 0, source.Width, source.Height);
+            var data = source.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                var stride = Math.Abs(data.Stride);
+                var bytes = new byte[stride * source.Height];
+                System.Runtime.InteropServices.Marshal.Copy(data.Scan0, bytes, 0, bytes.Length);
+                var keep = new byte[source.Width * source.Height];
+                var threshold = Math.Clamp(this.Settings.OcrThresholdValue, 0, 255);
+
+                for (var y = 0; y < source.Height; y++)
+                {
+                    var row = y * stride;
+                    for (var x = 0; x < source.Width; x++)
+                    {
+                        var idx = row + (x * 4);
+                        var b = bytes[idx];
+                        var g = bytes[idx + 1];
+                        var r = bytes[idx + 2];
+                        var max = Math.Max(r, Math.Max(g, b));
+                        var min = Math.Min(r, Math.Min(g, b));
+                        var luminance = ((299 * r) + (587 * g) + (114 * b)) / 1000;
+                        var dr = r - 50;
+                        var dg = g - 42;
+                        var db = b - 34;
+                        var textColorDistance = (dr * dr) + (dg * dg) + (db * db);
+                        var isLikelyText =
+                            luminance <= threshold + 8 &&
+                            (max - min <= 45 || textColorDistance <= 47 * 47);
+                        if (!isLikelyText)
+                        {
+                            continue;
+                        }
+
+                        var y0 = Math.Max(0, y - 6);
+                        var y1 = Math.Min(source.Height - 1, y + 6);
+                        var x0 = Math.Max(0, x - 6);
+                        var x1 = Math.Min(source.Width - 1, x + 6);
+                        for (var ny = y0; ny <= y1; ny++)
+                        {
+                            var keepRow = ny * source.Width;
+                            for (var nx = x0; nx <= x1; nx++)
+                            {
+                                keep[keepRow + nx] = 1;
+                            }
+                        }
+                    }
+                }
+
+                var result = new Bitmap(source.Width, source.Height, PixelFormat.Format32bppArgb);
+                var resultData = result.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                try
+                {
+                    var resultStride = Math.Abs(resultData.Stride);
+                    var resultBytes = new byte[resultStride * source.Height];
+                    for (var y = 0; y < source.Height; y++)
+                    {
+                        var srcRow = y * stride;
+                        var dstRow = y * resultStride;
+                        var keepRow = y * source.Width;
+                        for (var x = 0; x < source.Width; x++)
+                        {
+                            var src = srcRow + (x * 4);
+                            var dst = dstRow + (x * 4);
+                            if (keep[keepRow + x] != 0)
+                            {
+                                resultBytes[dst] = bytes[src];
+                                resultBytes[dst + 1] = bytes[src + 1];
+                                resultBytes[dst + 2] = bytes[src + 2];
+                            }
+                            else
+                            {
+                                resultBytes[dst] = 255;
+                                resultBytes[dst + 1] = 255;
+                                resultBytes[dst + 2] = 255;
+                            }
+
+                            resultBytes[dst + 3] = 255;
+                        }
+                    }
+
+                    System.Runtime.InteropServices.Marshal.Copy(resultBytes, 0, resultData.Scan0, resultBytes.Length);
+                }
+                finally
+                {
+                    result.UnlockBits(resultData);
+                }
+
+                return result;
+            }
+            finally
+            {
+                source.UnlockBits(data);
+            }
+        }
+
+        private static Rectangle? FindContentBounds(Bitmap bitmap)
+        {
+            var rect = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
+            var data = bitmap.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                var stride = Math.Abs(data.Stride);
+                var bytes = new byte[stride * bitmap.Height];
+                System.Runtime.InteropServices.Marshal.Copy(data.Scan0, bytes, 0, bytes.Length);
+                var minX = bitmap.Width;
+                var minY = bitmap.Height;
+                var maxX = -1;
+                var maxY = -1;
+
+                for (var y = 0; y < bitmap.Height; y++)
+                {
+                    var row = y * stride;
+                    for (var x = 0; x < bitmap.Width; x++)
+                    {
+                        if (bytes[row + (x * 4)] >= 128)
+                        {
+                            continue;
+                        }
+
+                        minX = Math.Min(minX, x);
+                        minY = Math.Min(minY, y);
+                        maxX = Math.Max(maxX, x);
+                        maxY = Math.Max(maxY, y);
+                    }
+                }
+
+                if (maxX < minX || maxY < minY)
+                {
+                    return null;
+                }
+
+                const int margin = 4;
+                minX = Math.Max(0, minX - margin);
+                minY = Math.Max(0, minY - margin);
+                maxX = Math.Min(bitmap.Width - 1, maxX + margin);
+                maxY = Math.Min(bitmap.Height - 1, maxY + margin);
+                var width = maxX - minX + 1;
+                var height = maxY - minY + 1;
+                return width * height >= bitmap.Width * bitmap.Height * 0.8
+                    ? null
+                    : new Rectangle(minX, minY, width, height);
+            }
+            finally
+            {
+                bitmap.UnlockBits(data);
+            }
+        }
+
+        private static List<Rectangle> DetectOcrRows(Bitmap bitmap, Rectangle? contentBounds)
+        {
+            var scan = contentBounds ?? new Rectangle(0, 0, bitmap.Width, bitmap.Height);
+            var data = bitmap.LockBits(scan, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                var stride = Math.Abs(data.Stride);
+                var bytes = new byte[stride * scan.Height];
+                System.Runtime.InteropServices.Marshal.Copy(data.Scan0, bytes, 0, bytes.Length);
+                var widthThreshold = Math.Max(2, (int)(scan.Width * 0.03f));
+                var blackCounts = new int[scan.Height];
+
+                for (var y = 0; y < scan.Height; y++)
+                {
+                    var row = y * stride;
+                    var count = 0;
+                    for (var x = 0; x < scan.Width; x++)
+                    {
+                        if (bytes[row + (x * 4)] < 128)
+                        {
+                            count++;
+                        }
+                    }
+
+                    blackCounts[y] = count >= widthThreshold ? count : 0;
+                }
+
+                var regions = new List<(int Start, int End)>();
+                var inRow = false;
+                var start = 0;
+                for (var y = 0; y < blackCounts.Length; y++)
+                {
+                    if (blackCounts[y] > 0)
+                    {
+                        if (!inRow)
+                        {
+                            start = y;
+                            inRow = true;
+                        }
+                    }
+                    else if (inRow)
+                    {
+                        if (y - start >= 4)
+                        {
+                            regions.Add((start, y - 1));
+                        }
+
+                        inRow = false;
+                    }
+                }
+
+                if (inRow && blackCounts.Length - start >= 4)
+                {
+                    regions.Add((start, blackCounts.Length - 1));
+                }
+
+                if (regions.Count == 0)
+                {
+                    return [];
+                }
+
+                var merged = new List<(int Start, int End)> { regions[0] };
+                for (var i = 1; i < regions.Count; i++)
+                {
+                    var previous = merged[^1];
+                    if (regions[i].Start - previous.End <= 10)
+                    {
+                        merged[^1] = (previous.Start, regions[i].End);
+                    }
+                    else
+                    {
+                        merged.Add(regions[i]);
+                    }
+                }
+
+                return merged
+                    .Select(row =>
+                    {
+                        var y = scan.Y + Math.Max(0, row.Start - 4);
+                        var bottom = scan.Y + Math.Min(scan.Height - 1, row.End + 4);
+                        return new Rectangle(scan.X, y, scan.Width, Math.Max(1, bottom - y + 1));
+                    })
+                    .ToList();
+            }
+            finally
+            {
+                bitmap.UnlockBits(data);
+            }
+        }
+
+        private static Bitmap AddWhiteBorder(Bitmap source, int borderPx)
+        {
+            var border = Math.Clamp(borderPx, 0, 8);
+            if (border == 0)
+            {
+                return (Bitmap)source.Clone();
+            }
+
+            var result = new Bitmap(source.Width + (border * 2), source.Height + (border * 2), PixelFormat.Format32bppArgb);
+            using var graphics = Graphics.FromImage(result);
+            graphics.Clear(Color.White);
+            graphics.DrawImage(source, border, border, source.Width, source.Height);
+            return result;
         }
 
         private void ApplyOcrPreprocessing(Bitmap bitmap)
@@ -856,12 +1312,25 @@
                 return string.Empty;
             }
 
-            var lines = raw.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries)
-                .Select(line => Regex.Replace(line.Trim(), "\\s+", " "))
-                .Select(NormalizeOcrLine)
-                .Where(line => line.Length > 1 && line.Any(char.IsLetter))
-                .ToArray();
-            return string.Join('\n', lines);
+            return string.Join(
+                '\n',
+                CleanOcrLines(raw.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries)
+                    .Select(line => new OcrLine(line, Vector2.Zero)))
+                    .Select(line => line.Text));
+        }
+
+        private static List<OcrLine> CleanOcrLines(IEnumerable<OcrLine> lines)
+        {
+            return lines
+                .Select(line => line with { Text = NormalizeOcrLine(Regex.Replace(line.Text.Trim(), "\\s+", " ")) })
+                .Where(line => line.Text.Length > 1 && line.Text.Any(char.IsLetter) && !IsPriceHintLine(line.Text))
+                .ToList();
+        }
+
+        private static bool IsPriceHintLine(string line)
+        {
+            return PriceHintLine.IsMatch(line) &&
+                !Regex.IsMatch(line, "[A-Za-z]{3,}\\s+[A-Za-z]{3,}", RegexOptions.IgnoreCase);
         }
 
         private void DrawOcrBounds()
@@ -996,11 +1465,12 @@
         private void RebuildRows()
         {
             this.rows.Clear();
-            var useOcrSource = this.Settings.EnableOcr &&
-                this.Settings.UseOcrResults &&
-                !string.IsNullOrWhiteSpace(this.ocrText);
+            var useOcrMode = this.Settings.EnableOcr && this.Settings.UseOcrResults;
+            var useOcrSource = useOcrMode && !string.IsNullOrWhiteSpace(this.ocrText);
             var sourceLines = useOcrSource
                 ? this.ocrLines.Select(line => line.Text).ToArray()
+                : useOcrMode
+                    ? []
                 : this.Settings.ManualItems.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries);
             this.sourceLineCount = Math.Max(1, sourceLines.Length);
 
@@ -1254,6 +1724,19 @@
             normalized = Regex.Replace(normalized, "\\s+", " ");
             normalized = normalized.Replace("0RB", "ORB", StringComparison.OrdinalIgnoreCase)
                 .Replace("GRB", "ORB", StringComparison.OrdinalIgnoreCase)
+                .Replace("PCRFCCT", "PERFECT", StringComparison.OrdinalIgnoreCase)
+                .Replace("PFRFCCT", "PERFECT", StringComparison.OrdinalIgnoreCase)
+                .Replace("PFRFECT", "PERFECT", StringComparison.OrdinalIgnoreCase)
+                .Replace("RCGAL", "REGAL", StringComparison.OrdinalIgnoreCase)
+                .Replace("RCGAT", "REGAL", StringComparison.OrdinalIgnoreCase)
+                .Replace("RFGAL", "REGAL", StringComparison.OrdinalIgnoreCase)
+                .Replace("SCRLC", "SERLE", StringComparison.OrdinalIgnoreCase)
+                .Replace("SFRLC", "SERLE", StringComparison.OrdinalIgnoreCase)
+                .Replace("MCDVCD", "MEDVED", StringComparison.OrdinalIgnoreCase)
+                .Replace("MFDVFD", "MEDVED", StringComparison.OrdinalIgnoreCase)
+                .Replace("TRIUNN PH", "TRIUMPH", StringComparison.OrdinalIgnoreCase)
+                .Replace("1 RIUNN PH", "TRIUMPH", StringComparison.OrdinalIgnoreCase)
+                .Replace("1RIUNN PH", "TRIUMPH", StringComparison.OrdinalIgnoreCase)
                 .Replace("CRCATCR", "GREATER", StringComparison.OrdinalIgnoreCase)
                 .Replace("CRCATFR", "GREATER", StringComparison.OrdinalIgnoreCase)
                 .Replace("GRCATCR", "GREATER", StringComparison.OrdinalIgnoreCase)
@@ -1299,6 +1782,17 @@
                 .Replace("\u0445", "x")
                 .Replace("\u0425", "x");
             cleaned = Regex.Replace(cleaned, "\\b0rb\\b", "Orb", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, "\\bPcrfcct\\b", "Perfect", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, "\\bPfrfcct\\b", "Perfect", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, "\\bPfrfect\\b", "Perfect", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, "\\bRcgal\\b", "Regal", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, "\\bRcgat\\b", "Regal", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, "\\bRfgal\\b", "Regal", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, "\\bScrlc's\\b", "Serle's", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, "\\bSfrlc's\\b", "Serle's", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, "\\bMcdvcd's\\b", "Medved's", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, "\\bMfdvfd's\\b", "Medved's", RegexOptions.IgnoreCase);
+            cleaned = Regex.Replace(cleaned, "\\b(?:1|l|I)?\\s*'?riunn\\s*ph\\b", "Triumph", RegexOptions.IgnoreCase);
             cleaned = Regex.Replace(cleaned, "\\bCrcatcr\\b", "Greater", RegexOptions.IgnoreCase);
             cleaned = Regex.Replace(cleaned, "\\bCrcatfr\\b", "Greater", RegexOptions.IgnoreCase);
             cleaned = Regex.Replace(cleaned, "\\bGrcatcr\\b", "Greater", RegexOptions.IgnoreCase);

@@ -1349,10 +1349,19 @@ namespace GameHelper.Settings
                     continue;
                 }
 
+                if (Core.GHSettings.SettingsWindowPosition != Vector2.Zero)
+                {
+                    ImGui.SetNextWindowPos(Core.GHSettings.SettingsWindowPosition, ImGuiCond.FirstUseEver);
+                }
+
+                ImGui.SetNextWindowSize(Core.GHSettings.SettingsWindowSize, ImGuiCond.FirstUseEver);
                 ImGui.SetNextWindowSizeConstraints(new Vector2(800, 600), Vector2.One * float.MaxValue);
                 var isMainMenuExpanded = ImGui.Begin(
                     $"Game Overlay Settings [ {Core.GetVersion()} ]",
                     ref isOverlayRunningLocal);
+
+                Core.GHSettings.SettingsWindowPosition = ImGui.GetWindowPos();
+                Core.GHSettings.SettingsWindowSize = ImGui.GetWindowSize();
 
                 if (!isOverlayRunningLocal)
                 {
