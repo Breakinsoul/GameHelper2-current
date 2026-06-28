@@ -277,7 +277,6 @@ namespace GameHelper.RemoteObjects.States.InGameStateObjects
                 if (offset != entitiesOffset)
                 {
                     entitiesOffset = offset;
-                    AppLogger.Info($"[AreaInstance] Auto-selected Entities offset 0x{entitiesOffset:X}.");
                     Console.WriteLine($"[AreaInstance] Auto-selected Entities offset 0x{entitiesOffset:X}.");
                 }
 

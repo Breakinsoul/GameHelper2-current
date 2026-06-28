@@ -1739,6 +1739,7 @@
             var normalized = NormalizeOcrLine(value).ToUpperInvariant();
             normalized = NonAlphaNumeric.Replace(normalized, " ").Trim();
             normalized = Regex.Replace(normalized, "\\s+", " ");
+            normalized = Regex.Replace(normalized, "^(SKILL|SUPPORT)\\s+", string.Empty, RegexOptions.IgnoreCase).Trim();
             normalized = normalized.Replace("0RB", "ORB", StringComparison.OrdinalIgnoreCase)
                 .Replace("GRB", "ORB", StringComparison.OrdinalIgnoreCase)
                 .Replace("PCRFCCT", "PERFECT", StringComparison.OrdinalIgnoreCase)
@@ -1798,6 +1799,7 @@
                 .Replace("`", "'")
                 .Replace("\u0445", "x")
                 .Replace("\u0425", "x");
+            cleaned = Regex.Replace(cleaned, "^\\s*(?:Skill|Support)\\s*[:;.,\\-]\\s*", string.Empty, RegexOptions.IgnoreCase);
             cleaned = Regex.Replace(cleaned, "\\b0rb\\b", "Orb", RegexOptions.IgnoreCase);
             cleaned = Regex.Replace(cleaned, "\\bPcrfcct\\b", "Perfect", RegexOptions.IgnoreCase);
             cleaned = Regex.Replace(cleaned, "\\bPfrfcct\\b", "Perfect", RegexOptions.IgnoreCase);

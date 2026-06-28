@@ -179,8 +179,14 @@
         public void Normalize()
         {
             this.Graduations = Math.Clamp(this.Graduations, 0, 9);
-            this.Scale.X = Math.Max(1f, this.Scale.X);
-            this.Scale.Y = Math.Max(1f, this.Scale.Y);
+            this.Scale.X = SanitizeFloat(this.Scale.X, 1f, 500f, 128f);
+            this.Scale.Y = SanitizeFloat(this.Scale.Y, 1f, 500f, 8f);
+            this.Shift.X = SanitizeFloat(this.Shift.X, -4000f, 4000f, 0f);
+            this.Shift.Y = SanitizeFloat(this.Shift.Y, -2500f, 2500f, 11f);
+            this.BackgroundColor = SanitizeColor(this.BackgroundColor, new(Vector3.Zero, 1f));
+            this.HealthbarColor = SanitizeColor(this.HealthbarColor, Vector4.One);
+            this.ESColor = SanitizeColor(this.ESColor, new(0f, 1f, 1f, 1f));
+            this.TextColor = SanitizeColor(this.TextColor, new(0f, 1f, 1f, 1f));
             this.UpdateGrauationsLocationData();
         }
 
@@ -189,6 +195,20 @@
             this.GraduationsLocationStart = this.Scale.X / (this.Graduations + 1);
             this.GraduationsLocationEnd = Vector2.UnitY * this.Scale.Y;
             this.HalfOfScale = this.Scale / 2;
+        }
+
+        private static float SanitizeFloat(float value, float min, float max, float fallback)
+        {
+            return float.IsFinite(value) ? Math.Clamp(value, min, max) : fallback;
+        }
+
+        private static Vector4 SanitizeColor(Vector4 color, Vector4 fallback)
+        {
+            return new(
+                SanitizeFloat(color.X, 0f, 1f, fallback.X),
+                SanitizeFloat(color.Y, 0f, 1f, fallback.Y),
+                SanitizeFloat(color.Z, 0f, 1f, fallback.Z),
+                SanitizeFloat(color.W, 0f, 1f, fallback.W));
         }
     }
 }

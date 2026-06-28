@@ -18,6 +18,7 @@ namespace HealthBars
     using GameHelper.RemoteObjects.Components;
     using GameHelper.RemoteObjects.States.InGameStateObjects;
     using GameHelper.Utils;
+    using GameOffsets.Natives;
     using ImGuiNET;
     using Newtonsoft.Json;
 
@@ -56,6 +57,8 @@ namespace HealthBars
         private readonly List<uint> cachedEntityIdsScratch = new();
 
         private ActiveCoroutine? onAreaChange = null;
+        private int entityDrawExceptionCount;
+        private string lastEntityDrawException = string.Empty;
 
         private bool IsDebugEnabled => this.Settings.ShowDebugTable || this.Settings.ShowDebugOverlay;
 
@@ -157,6 +160,7 @@ namespace HealthBars
 
             this.debugSkipReason = "Drawing";
             this.UpdateOncePerDraw();
+            this.SanitizeRuntimeSettings();
             this.PruneInterpolationCache(cAreaInstance);
             var debugEnabled = this.IsDebugEnabled;
             foreach (var entity in cAreaInstance.AwakeEntities)
@@ -567,6 +571,7 @@ namespace HealthBars
             }
 
             this.Settings.InterpolationRate = Math.Clamp(this.Settings.InterpolationRate, 1, 1000);
+            this.SanitizeRuntimeSettings();
         }
 
         private void ApplyStylePreset(HealthBarsStylePreset preset)
@@ -636,6 +641,33 @@ namespace HealthBars
 
         private void DrawHealthbar(Entity entity, Config healthbarConfig, int rarity, bool isSelf = false, string source = "")
         {
+            try
+            {
+                this.DrawHealthbarUnsafe(entity, healthbarConfig, rarity, isSelf, source);
+            }
+            catch (Exception ex)
+            {
+                this.bPositions.Remove(entity.Id);
+                this.entityDrawExceptionCount++;
+                this.lastEntityDrawException = ex.Message;
+                if (this.entityDrawExceptionCount <= 25 || this.entityDrawExceptionCount % 100 == 0)
+                {
+                    Console.WriteLine($"[HealthBars.DrawHealthbar] entity {entity.Id} ({source}) threw: {ex}");
+                }
+
+                try
+                {
+                    this.RecordDebug(entity, "filtered", $"{source}: exception {ex.GetType().Name}", true, rarity);
+                }
+                catch
+                {
+                    // Debug recording must not turn a bad entity into a repeated render failure.
+                }
+            }
+        }
+
+        private void DrawHealthbarUnsafe(Entity entity, Config healthbarConfig, int rarity, bool isSelf = false, string source = "")
+        {
             if (this.IsDebugEnabled)
             {
                 this.debugDrawAttempts++;
@@ -654,9 +686,30 @@ namespace HealthBars
             }
 
             var curPos = rComp.WorldPosition;
+            if (!IsFinite(curPos) || !IsFinite(rComp.ModelBounds))
+            {
+                this.bPositions.Remove(entity.Id);
+                this.RecordDebug(entity, "filtered", $"{source}: invalid render position", true, rarity);
+                return;
+            }
+
             curPos.Z -= rComp.ModelBounds.Z + healthbarConfig.Shift.Y;
             var location = Core.States.InGameStateObject.CurrentWorldInstance.WorldToScreen(curPos, curPos.Z);
+            if (!IsSafeScreenPosition(location))
+            {
+                this.bPositions.Remove(entity.Id);
+                this.RecordDebug(entity, "filtered", $"{source}: invalid screen projection", true, rarity, location);
+                return;
+            }
+
             location.X += healthbarConfig.Shift.X;
+            if (!IsSafeScreenPosition(location))
+            {
+                this.bPositions.Remove(entity.Id);
+                this.RecordDebug(entity, "filtered", $"{source}: invalid shifted projection", true, rarity, location);
+                return;
+            }
+
             var screenCullMargin = Vector2.One * (MathF.Max(healthbarConfig.HalfOfScale.X, healthbarConfig.HalfOfScale.Y) + 8f);
             var isProjectedOutsideScreen = PluginRuntimeHelper.IsOutsideScreen(location, screenCullMargin);
             if (isProjectedOutsideScreen && this.Settings.CullOutsideScreen)
@@ -690,7 +743,15 @@ namespace HealthBars
             {
                 if (this.bPositions.TryGetValue(entity.Id, out var prevLocation))
                 {
-                    location = MathHelper.Lerp(prevLocation, location, this.Settings.InterpolationRate / 1000f);
+                    location = IsSafeScreenPosition(prevLocation)
+                        ? MathHelper.Lerp(prevLocation, location, this.Settings.InterpolationRate / 1000f)
+                        : location;
+                    if (!IsSafeScreenPosition(location))
+                    {
+                        this.bPositions.Remove(entity.Id);
+                        this.RecordDebug(entity, "filtered", $"{source}: invalid interpolated projection", true, rarity, location, hComp, "Life component");
+                        return;
+                    }
                 }
 
                 this.bPositions[entity.Id] = location;
@@ -699,6 +760,12 @@ namespace HealthBars
             var ptr = ImGui.GetBackgroundDrawList();
             var start = location - healthbarConfig.HalfOfScale;
             var end = location + healthbarConfig.HalfOfScale;
+            if (!IsSafeScreenPosition(start) || !IsSafeScreenPosition(end) || end.X <= start.X || end.Y <= start.Y)
+            {
+                this.bPositions.Remove(entity.Id);
+                this.RecordDebug(entity, "filtered", $"{source}: invalid draw rectangle", true, rarity, location, hComp, "Life component");
+                return;
+            }
 
             var hPercent = hasKnownHealth ? ClampPercent(hComp.Health.CurrentInPercent()) : 100;
             rarity = Math.Clamp(rarity, 0, this.Settings.CullingStrikeRangePerRarity.Length - 1);
@@ -707,10 +774,10 @@ namespace HealthBars
                 healthbarConfig.ShowCullStrike;
             var secondaryPercent = 0;
             var hasSecondary = false;
-            if (hasKnownHealth && isSelf && this.Settings.ShowManaRatherThanESOnSelf)
+            if (hasKnownHealth && isSelf && this.Settings.ShowManaRatherThanESOnSelf && hComp.Mana.Total > 0)
             {
                 secondaryPercent = ClampPercent(hComp.Mana.CurrentInPercent());
-                hasSecondary = hComp.Mana.Total > 0;
+                hasSecondary = true;
             }
             else if (hasKnownHealth && hComp.EnergyShield.Total > 0)
             {
@@ -741,7 +808,7 @@ namespace HealthBars
                     : hComp.EnergyShield.Current;
                 var textPos = start - this.fontSize;
                 var healthText = hasKnownHealth
-                    ? this.healthToHumanReadable(hComp.Health.Current + secondaryValue)
+                    ? this.healthToHumanReadable((long)hComp.Health.Current + secondaryValue)
                     : "?";
                 var shadowColor = ImGuiHelper.Color(this.Settings.CurrentHealthTextShadowColor);
                 if (HasAlpha(shadowColor))
@@ -778,6 +845,33 @@ namespace HealthBars
         {
             this.graduationsThickness = ImGui.GetFontSize() / 9f;
             this.fontSize = new(0f, ImGui.GetFontSize());
+        }
+
+        private void SanitizeRuntimeSettings()
+        {
+            this.Settings.InterpolationRate = Math.Clamp(this.Settings.InterpolationRate, 1, 1000);
+            this.Settings.ModernBarRounding = SanitizeFloat(this.Settings.ModernBarRounding, 0f, 12f, 2f);
+            this.Settings.ModernBarBorderThickness = SanitizeFloat(this.Settings.ModernBarBorderThickness, 0f, 4f, 0f);
+            this.Settings.ModernBarShadowAlpha = Math.Clamp(this.Settings.ModernBarShadowAlpha, 0, 255);
+            this.Settings.StatusOverlayPosition = SanitizeVector2(this.Settings.StatusOverlayPosition, new(20f, 120f));
+            this.Settings.CurrentHealthTextColor = SanitizeColor(this.Settings.CurrentHealthTextColor, new(0.92156863f, 0.9607843f, 1f, 1f));
+            this.Settings.CurrentHealthTextShadowColor = SanitizeColor(this.Settings.CurrentHealthTextShadowColor, new(0f, 0f, 0f, 0.85f));
+            this.Settings.ModernBarBorderColor = SanitizeColor(this.Settings.ModernBarBorderColor, new(0.92156863f, 0.9607843f, 1f, 1f));
+
+            foreach (var config in this.Settings.Monster.Values)
+            {
+                config.Normalize();
+            }
+
+            foreach (var config in this.Settings.POIMonster.Values)
+            {
+                config.Normalize();
+            }
+
+            foreach (var config in this.Settings.Player.Values)
+            {
+                config.Normalize();
+            }
         }
 
         private void DrawModernHealthbar(
@@ -902,6 +996,50 @@ namespace HealthBars
         private static int ClampPercent(int value)
         {
             return Math.Clamp(value, 0, 100);
+        }
+
+        private static bool IsFinite(Vector2 value)
+        {
+            return float.IsFinite(value.X) && float.IsFinite(value.Y);
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
+        }
+
+        private static bool IsFinite(StdTuple3D<float> value)
+        {
+            return float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
+        }
+
+        private static bool IsSafeScreenPosition(Vector2 value)
+        {
+            const float MaxDrawCoordinate = 100000f;
+            return IsFinite(value) &&
+                MathF.Abs(value.X) <= MaxDrawCoordinate &&
+                MathF.Abs(value.Y) <= MaxDrawCoordinate;
+        }
+
+        private static float SanitizeFloat(float value, float min, float max, float fallback)
+        {
+            return float.IsFinite(value) ? Math.Clamp(value, min, max) : fallback;
+        }
+
+        private static Vector2 SanitizeVector2(Vector2 value, Vector2 fallback)
+        {
+            return new(
+                SanitizeFloat(value.X, -4000f, 4000f, fallback.X),
+                SanitizeFloat(value.Y, -4000f, 4000f, fallback.Y));
+        }
+
+        private static Vector4 SanitizeColor(Vector4 color, Vector4 fallback)
+        {
+            return new(
+                SanitizeFloat(color.X, 0f, 1f, fallback.X),
+                SanitizeFloat(color.Y, 0f, 1f, fallback.Y),
+                SanitizeFloat(color.Z, 0f, 1f, fallback.Z),
+                SanitizeFloat(color.W, 0f, 1f, fallback.W));
         }
 
         private static bool HasAlpha(uint color)
@@ -1152,6 +1290,12 @@ namespace HealthBars
             ImGui.TextUnformatted($"Reason: {this.debugSkipReason}");
             ImGui.TextUnformatted($"State: {Core.States.GameCurrentState}, foreground: {Core.Process.Foreground}");
             ImGui.TextUnformatted($"Entities: seen={this.debugEntitiesSeen}, candidates={this.debugCandidates}, attempts={this.debugDrawAttempts}, drawn={this.debugDrawn}, filtered={this.debugFiltered}");
+            ImGui.TextUnformatted($"Entity draw exceptions: {this.entityDrawExceptionCount}");
+            if (!string.IsNullOrWhiteSpace(this.lastEntityDrawException))
+            {
+                ImGui.TextWrapped(this.lastEntityDrawException);
+            }
+
             ImGui.TextUnformatted($"Records: {this.debugRecords.Count}");
             ImGui.Separator();
         }
@@ -1231,16 +1375,16 @@ namespace HealthBars
             }
         }
 
-        private string healthToHumanReadable(int value)
+        private string healthToHumanReadable(long value)
         {
             if (value >= 100000)
             {
-                return $"{(value / 1000000f):0.00}M";
+                return $"{(value / 1000000d):0.00}M";
 
             }
             else if (value >= 100)
             {
-                return $"{(value / 1000f):0.00}K";
+                return $"{(value / 1000d):0.00}K";
             }
             else
             {

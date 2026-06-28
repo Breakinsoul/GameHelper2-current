@@ -23,7 +23,7 @@ namespace GameHelper
             {
                 var errorText = "Program exited with message:\n " + exceptionArgs.ExceptionObject;
                 File.AppendAllText("Error.log", $"{DateTime.Now:g} {errorText}\r\n{new string('-', 30)}\r\n");
-                AppLogger.Info(errorText);
+                AppLogger.Error("UnhandledException", exceptionArgs.ExceptionObject as Exception ?? new Exception(errorText));
 
                 // Do NOT call Environment.Exit — it skips `using` Dispose and leaks
                 // the SafeMemoryHandle (audit F-061). The runtime will terminate

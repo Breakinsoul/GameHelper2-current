@@ -143,7 +143,6 @@ namespace GameHelper.RemoteObjects.Components
                 if (offset != healthOffset)
                 {
                     healthOffset = offset;
-                    AppLogger.Info($"[Life] Auto-selected Health offset 0x{healthOffset:X}.");
                     Console.WriteLine($"[Life] Auto-selected Health offset 0x{healthOffset:X}.");
                 }
 

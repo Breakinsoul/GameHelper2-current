@@ -189,7 +189,6 @@ namespace GameHelper.RemoteObjects.Components
                 if (offset != worldPositionOffset)
                 {
                     worldPositionOffset = offset;
-                    AppLogger.Info($"[Render] Auto-selected WorldPosition offset 0x{worldPositionOffset:X}.");
                     Console.WriteLine($"[Render] Auto-selected WorldPosition offset 0x{worldPositionOffset:X}.");
                 }
 
@@ -231,7 +230,6 @@ namespace GameHelper.RemoteObjects.Components
                 bestDelta + 1f < currentDelta)
             {
                 terrainHeightOffset = bestOffset;
-                AppLogger.Info($"[Render] Auto-selected TerrainHeight offset 0x{terrainHeightOffset:X}.");
                 Console.WriteLine($"[Render] Auto-selected TerrainHeight offset 0x{terrainHeightOffset:X}.");
             }
 
