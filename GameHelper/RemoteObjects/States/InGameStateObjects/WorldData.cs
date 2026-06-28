@@ -10,6 +10,7 @@ namespace GameHelper.RemoteObjects.States.InGameStateObjects
     using Coroutine;
     using GameHelper.CoroutineEvents;
     using GameHelper.RemoteObjects.FilesStructures;
+    using GameHelper.Utils;
     using GameOffsets.Natives;
     using GameOffsets.Objects.States.InGameState;
     using ImGuiNET;
@@ -50,37 +51,7 @@ namespace GameHelper.RemoteObjects.States.InGameStateObjects
         /// <returns>screen location of the entity.</returns>
         public Vector2 WorldToScreen(StdTuple3D<float> worldPosition, float height)
         {
-            if (this.Address == IntPtr.Zero)
-            {
-                return Vector2.Zero;
-            }
-
-            var snap = System.Threading.Volatile.Read(ref this.matrixSnap);
-            var matrix = snap.M;
-
-            Vector2 result = Vector2.Zero;
-            double[] tmpResult = [0, 0, 0, 0];
-            double[] temp0 = [worldPosition.X, worldPosition.Y, height, 1.0f];
-
-            for (var i = 0; i < 4; i++)
-            {
-                tmpResult[i] = 0;
-                for (var j = 0; j < 4; j++)
-                {
-                    tmpResult[i] += matrix[j, i] * temp0[j];
-                }
-            }
-
-            for (var i = 0; i < 4; i++)
-            {
-                tmpResult[i] /= tmpResult[3];
-            }
-
-            tmpResult[0] = (tmpResult[0] + 1.0f) * (Core.Process.WindowArea.Width / 2.0f);
-            tmpResult[1] = (1.0f - tmpResult[1]) * (Core.Process.WindowArea.Height / 2.0f);
-            result.X = (float)Math.Round(tmpResult[0], 6, MidpointRounding.ToNegativeInfinity);
-            result.Y = (float)Math.Round(tmpResult[1], 6, MidpointRounding.ToNegativeInfinity);
-            return result;
+            return this.WorldToScreen(new Vector2(worldPosition.X, worldPosition.Y), height);
         }
 
         /// <summary>
@@ -91,13 +62,19 @@ namespace GameHelper.RemoteObjects.States.InGameStateObjects
         /// <returns>screen location of the entity.</returns>
         public Vector2 WorldToScreen(Vector2 worldPosition, float height)
         {
-            if (this.Address == IntPtr.Zero)
+            if (this.Address == IntPtr.Zero ||
+                !PluginRuntimeHelper.IsFinite(worldPosition) ||
+                !float.IsFinite(height))
             {
                 return Vector2.Zero;
             }
 
             var snap = System.Threading.Volatile.Read(ref this.matrixSnap);
             var matrix = snap.M;
+            if (!IsFinite(matrix))
+            {
+                return Vector2.Zero;
+            }
 
             Vector2 result = Vector2.Zero;
             double[] tmpResult = [0, 0, 0, 0];
@@ -112,16 +89,30 @@ namespace GameHelper.RemoteObjects.States.InGameStateObjects
                 }
             }
 
+            if (!double.IsFinite(tmpResult[3]) || Math.Abs(tmpResult[3]) < 0.000001d)
+            {
+                return Vector2.Zero;
+            }
+
             for (var i = 0; i < 4; i++)
             {
                 tmpResult[i] /= tmpResult[3];
+                if (!double.IsFinite(tmpResult[i]))
+                {
+                    return Vector2.Zero;
+                }
             }
 
             tmpResult[0] = (tmpResult[0] + 1.0f) * (Core.Process.WindowArea.Width / 2.0f);
             tmpResult[1] = (1.0f - tmpResult[1]) * (Core.Process.WindowArea.Height / 2.0f);
+            if (!double.IsFinite(tmpResult[0]) || !double.IsFinite(tmpResult[1]))
+            {
+                return Vector2.Zero;
+            }
+
             result.X = (float)Math.Round(tmpResult[0], 6, MidpointRounding.ToNegativeInfinity);
             result.Y = (float)Math.Round(tmpResult[1], 6, MidpointRounding.ToNegativeInfinity);
-            return result;
+            return PluginRuntimeHelper.IsSafeScreenPosition(result) ? result : Vector2.Zero;
         }
 
         /// <summary>
@@ -185,6 +176,14 @@ namespace GameHelper.RemoteObjects.States.InGameStateObjects
                     this.UpdateData(false);
                 }
             }
+        }
+
+        private static bool IsFinite(Matrix4x4 matrix)
+        {
+            return float.IsFinite(matrix.M11) && float.IsFinite(matrix.M12) && float.IsFinite(matrix.M13) && float.IsFinite(matrix.M14) &&
+                float.IsFinite(matrix.M21) && float.IsFinite(matrix.M22) && float.IsFinite(matrix.M23) && float.IsFinite(matrix.M24) &&
+                float.IsFinite(matrix.M31) && float.IsFinite(matrix.M32) && float.IsFinite(matrix.M33) && float.IsFinite(matrix.M34) &&
+                float.IsFinite(matrix.M41) && float.IsFinite(matrix.M42) && float.IsFinite(matrix.M43) && float.IsFinite(matrix.M44);
         }
     }
 }

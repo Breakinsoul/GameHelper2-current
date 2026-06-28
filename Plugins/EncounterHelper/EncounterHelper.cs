@@ -386,11 +386,20 @@ namespace EncounterHelper
 
         private void DrawMarker(ImDrawListPtr drawList, Vector2 center, EncounterRule rule, float radius)
         {
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(center) || !float.IsFinite(radius))
+            {
+                return;
+            }
+
             var markerColor = ImGuiHelper.Color(rule.MarkerColor);
             var outlineColor = ImGuiHelper.Color(this.Settings.MarkerOutlineColor);
             var outlineRadius = radius + this.Settings.MarkerOutlinePadding;
             var thickness = MathF.Max(1f, this.Settings.MarkerThickness);
             var segments = Math.Clamp(this.Settings.MarkerSegments, 8, 64);
+            if (!float.IsFinite(outlineRadius) || !float.IsFinite(thickness))
+            {
+                return;
+            }
 
             if (HasAlpha(outlineColor))
             {
@@ -409,6 +418,15 @@ namespace EncounterHelper
 
         private void DrawMarkerShape(ImDrawListPtr drawList, Vector2 center, EncounterMarkerShape shape, float radius, uint color, float thickness, bool filled, int segments)
         {
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(center) ||
+                !float.IsFinite(radius) ||
+                !float.IsFinite(thickness) ||
+                radius <= 0f ||
+                thickness <= 0f)
+            {
+                return;
+            }
+
             switch (shape)
             {
                 case EncounterMarkerShape.Circle:
@@ -468,10 +486,25 @@ namespace EncounterHelper
 
         private void DrawDiamond(ImDrawListPtr drawList, Vector2 center, float radius, uint color, float thickness)
         {
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(center) ||
+                !float.IsFinite(radius) ||
+                !float.IsFinite(thickness))
+            {
+                return;
+            }
+
             var top = center + new Vector2(0f, -radius);
             var right = center + new Vector2(radius, 0f);
             var bottom = center + new Vector2(0f, radius);
             var left = center + new Vector2(-radius, 0f);
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(top) ||
+                !PluginRuntimeHelper.IsSafeScreenPosition(right) ||
+                !PluginRuntimeHelper.IsSafeScreenPosition(bottom) ||
+                !PluginRuntimeHelper.IsSafeScreenPosition(left))
+            {
+                return;
+            }
+
             drawList.AddLine(top, right, color, thickness);
             drawList.AddLine(right, bottom, color, thickness);
             drawList.AddLine(bottom, left, color, thickness);
@@ -481,19 +514,33 @@ namespace EncounterHelper
         private void DrawLabel(ImDrawListPtr drawList, Vector2 center, EncounterRule rule, float markerRadius)
         {
             var labelColor = ImGuiHelper.Color(rule.LabelColor);
-            if (!HasAlpha(labelColor) || string.IsNullOrWhiteSpace(rule.Name))
+            if (!HasAlpha(labelColor) ||
+                string.IsNullOrWhiteSpace(rule.Name) ||
+                !PluginRuntimeHelper.IsSafeScreenPosition(center) ||
+                !float.IsFinite(markerRadius))
             {
                 return;
             }
 
             var pos = center + new Vector2(markerRadius, 0f) + this.Settings.LabelOffset;
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(pos))
+            {
+                return;
+            }
+
             if (this.Settings.ShowLabelBackground)
             {
                 var bgColor = ImGuiHelper.Color(this.Settings.LabelBackgroundColor);
                 if (HasAlpha(bgColor))
                 {
                     var textSize = ImGui.CalcTextSize(rule.Name);
-                    drawList.AddRectFilled(pos - new Vector2(4f, 2f), pos + textSize + new Vector2(4f, 2f), bgColor, 3f);
+                    var bgMin = pos - new Vector2(4f, 2f);
+                    var bgMax = pos + textSize + new Vector2(4f, 2f);
+                    if (PluginRuntimeHelper.IsSafeScreenPosition(bgMin) &&
+                        PluginRuntimeHelper.IsSafeScreenPosition(bgMax))
+                    {
+                        drawList.AddRectFilled(bgMin, bgMax, bgColor, 3f);
+                    }
                 }
             }
 

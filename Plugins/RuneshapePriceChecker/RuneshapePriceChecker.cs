@@ -440,6 +440,13 @@
                 var pad = new Vector2(6f, 3f);
                 var bgMin = pos - pad;
                 var bgMax = pos + textSize + pad;
+                if (!PluginRuntimeHelper.IsSafeScreenPosition(pos) ||
+                    !PluginRuntimeHelper.IsSafeScreenPosition(bgMin) ||
+                    !PluginRuntimeHelper.IsSafeScreenPosition(bgMax))
+                {
+                    continue;
+                }
+
                 var bg = ImGui.GetColorU32(new Vector4(0.02f, 0.02f, 0.03f, 0.78f));
                 var border = ImGui.GetColorU32(this.GetPriceColor(row.ChaosValue));
                 drawList.AddRectFilled(bgMin, bgMax, bg, 4f);
@@ -1360,10 +1367,21 @@
 
             var p1 = new Vector2(game.Left + this.Settings.OcrOffsetX, game.Top + this.Settings.OcrOffsetY);
             var p2 = p1 + new Vector2(this.Settings.OcrWidth, this.Settings.OcrHeight);
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(p1) ||
+                !PluginRuntimeHelper.IsSafeScreenPosition(p2))
+            {
+                return;
+            }
+
             var drawList = ImGui.GetForegroundDrawList();
             drawList.AddRect(p1, p2, ImGui.GetColorU32(new Vector4(0.25f, 0.95f, 0.72f, 0.95f)), 0f, ImDrawFlags.None, 2f);
             var inset = Math.Clamp(this.Settings.OcrTextInsetLeft, 0, Math.Max(0, this.Settings.OcrWidth - 32));
             var textP1 = p1 + new Vector2(inset, 0f);
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(textP1))
+            {
+                return;
+            }
+
             drawList.AddLine(textP1, new Vector2(textP1.X, p2.Y), ImGui.GetColorU32(new Vector4(1f, 0.79f, 0.22f, 0.95f)), 2f);
         }
 

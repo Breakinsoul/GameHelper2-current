@@ -98,6 +98,12 @@ namespace GameHelper.Utils
         /// <param name="b">color selector blue 0 - 255.</param>
         public static void DrawRect(Vector2 pos, Vector2 size, byte r, byte g, byte b)
         {
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(pos) ||
+                !PluginRuntimeHelper.IsSafeScreenPosition(pos + size))
+            {
+                return;
+            }
+
             ImGui.GetForegroundDrawList().AddRect(pos, pos + size, Color(r, g, b, 255), 0f, ImDrawFlags.RoundCornersNone, 4f);
         }
 
@@ -112,8 +118,19 @@ namespace GameHelper.Utils
             var colFg = Color(255, 255, 255, 255);
             var textSizeHalf = ImGui.CalcTextSize(text) / 2;
             var location = Core.States.InGameStateObject.CurrentWorldInstance.WorldToScreen(pos);
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(location))
+            {
+                return;
+            }
+
             var max = location + textSizeHalf;
             location -= textSizeHalf;
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(location) ||
+                !PluginRuntimeHelper.IsSafeScreenPosition(max))
+            {
+                return;
+            }
+
             ImGui.GetBackgroundDrawList().AddRectFilled(location, max, colBg);
             ImGui.GetForegroundDrawList().AddText(location, colFg, text);
         }

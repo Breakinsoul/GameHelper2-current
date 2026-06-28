@@ -406,6 +406,13 @@ namespace Radar
             p2 += mapCenter;
             p3 += mapCenter;
             p4 += mapCenter;
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(p1) ||
+                !PluginRuntimeHelper.IsSafeScreenPosition(p2) ||
+                !PluginRuntimeHelper.IsSafeScreenPosition(p3) ||
+                !PluginRuntimeHelper.IsSafeScreenPosition(p4))
+            {
+                return;
+            }
 
             if (this.Settings.DrawMapInCull)
             {
@@ -458,6 +465,12 @@ namespace Radar
                     location - pPos, -playerRender.TerrainHeight + height);
                 var textMin = mapCenter + fpos - stringImGuiSize;
                 var textMax = mapCenter + fpos + stringImGuiSize;
+                if (!PluginRuntimeHelper.IsSafeScreenPosition(textMin) ||
+                    !PluginRuntimeHelper.IsSafeScreenPosition(textMax))
+                {
+                    return;
+                }
+
                 if (textMax.X < clipMin.X || textMin.X > clipMax.X || textMax.Y < clipMin.Y || textMin.Y > clipMax.Y)
                 {
                     return;
@@ -775,6 +788,13 @@ namespace Radar
                 var fpos = Helper.DeltaInWorldToMapDelta(ePos - pPos, entityRender.TerrainHeight - playerRender.TerrainHeight);
                 var screenPos = mapCenter + fpos;
                 screenPos = this.InterpolateMapPosition(entityValue.Id, screenPos, interpolatedPositions);
+                if (!PluginRuntimeHelper.IsSafeScreenPosition(screenPos))
+                {
+                    interpolatedPositions.Remove(entityValue.Id);
+                    this.debugEntitiesClipped++;
+                    continue;
+                }
+
                 this.debugLastProjectedPosition = screenPos;
                 if (screenPos.X < clipMin.X - clipPadding || screenPos.X > clipMax.X + clipPadding ||
                     screenPos.Y < clipMin.Y - clipPadding || screenPos.Y > clipMax.Y + clipPadding)
@@ -1338,6 +1358,11 @@ namespace Radar
         private void DrawOnDeathEffectMarker(ImDrawListPtr drawList, Vector2 center, uint color)
         {
             var radius = MathF.Max(1f, this.Settings.OnDeathEffectMarkerRadius);
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(center) || !float.IsFinite(radius))
+            {
+                return;
+            }
+
             var shadow = ImGuiHelper.Color(0, 0, 0, 245);
             drawList.AddCircleFilled(center + new Vector2(1f, 1f), radius + 1.5f, shadow, 12);
             drawList.AddCircleFilled(center, radius, color, 12);
@@ -1389,6 +1414,14 @@ namespace Radar
             string iconName,
             EntityTypes entityType)
         {
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(center) ||
+                !PluginRuntimeHelper.IsFinite(iconHalfSize) ||
+                iconHalfSize.X <= 0f ||
+                iconHalfSize.Y <= 0f)
+            {
+                return;
+            }
+
             if (!this.Settings.UseEnhancedIconMarkers)
             {
                 drawList.AddImage(
@@ -1401,6 +1434,13 @@ namespace Radar
             }
 
             var markerHalfSize = iconHalfSize * MathF.Max(0.1f, this.Settings.EnhancedMarkerScale);
+            if (!PluginRuntimeHelper.IsFinite(markerHalfSize) ||
+                markerHalfSize.X <= 0f ||
+                markerHalfSize.Y <= 0f)
+            {
+                return;
+            }
+
             var borderColor = this.GetEnhancedMarkerColor(iconName, entityType);
             var backgroundAlpha = (uint)Math.Clamp(this.Settings.EnhancedMarkerBackgroundAlpha, 0, 255);
             var backgroundColor = ImGuiHelper.Color(4, 8, 12, backgroundAlpha);
@@ -1437,6 +1477,15 @@ namespace Radar
             uint borderColor,
             float borderThickness)
         {
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(center) ||
+                !PluginRuntimeHelper.IsFinite(halfSize) ||
+                halfSize.X <= 0f ||
+                halfSize.Y <= 0f ||
+                !float.IsFinite(borderThickness))
+            {
+                return;
+            }
+
             switch (this.Settings.EnhancedMarkerShape)
             {
                 case RadarMarkerShape.Square:
@@ -2031,6 +2080,11 @@ namespace Radar
 
         private void DrawEntityPathEnding(string path, ImDrawListPtr fgDraw, Vector2 pos)
         {
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(pos))
+            {
+                return;
+            }
+
             var lastIndex = path.LastIndexOf('/') + 1;
             if (lastIndex < 0 || lastIndex >= path.Length)
             {
@@ -2039,6 +2093,13 @@ namespace Radar
 
             var displayName = path.AsSpan(lastIndex, path.Length - lastIndex);
             var pNameSizeH = ImGui.CalcTextSize(displayName) / 2;
+            if (!PluginRuntimeHelper.IsFinite(pNameSizeH) ||
+                !PluginRuntimeHelper.IsSafeScreenPosition(pos - pNameSizeH) ||
+                !PluginRuntimeHelper.IsSafeScreenPosition(pos + pNameSizeH))
+            {
+                return;
+            }
+
             fgDraw.AddRectFilled(pos - pNameSizeH, pos + pNameSizeH,
                 ImGuiHelper.Color(0, 0, 0, 200));
             fgDraw.AddText(ImGui.GetFont(), ImGui.GetFontSize(), pos - pNameSizeH,

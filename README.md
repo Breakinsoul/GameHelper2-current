@@ -5,13 +5,19 @@ GameHelper2 is a Windows x64 .NET overlay application with a launcher, GitHub-ba
 Current release stream:
 
 - Repository: `Breakinsoul/GameHelper2-current`
-- Current app version: `2.3.13`
+- Current app version: `2.3.14`
 - Latest release asset pattern: `GameHelper*.zip`
 - Update configuration: `Launcher/updater.json`
 
 The launcher checks GitHub Releases, downloads the latest matching ZIP, applies the update through the launcher-native `--apply-update` mode, and restarts the application.
 
 ## Version History
+
+### v2.3.14
+
+- Hardened world-to-screen projection against invalid matrices, zero divisors, and non-finite coordinates.
+- Added shared safe-screen guards for interpolation caches and plugin projection helpers.
+- Added draw-list guards across Radar, AtlasHelper, EncounterHelper, NearbyVisualization, ImGuiHelper, and RuneshapePriceChecker overlays.
 
 ### v2.3.13
 
@@ -192,7 +198,7 @@ After a successful release build, package the main runtime output folder:
 ```powershell
 $out = Resolve-Path "GameHelper\bin\Release\net10.0-windows\win-x64"
 New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-Compress-Archive -Path (Join-Path $out "*") -DestinationPath "artifacts\GameHelper-v2.3.13.zip" -Force
+Compress-Archive -Path (Join-Path $out "*") -DestinationPath "artifacts\GameHelper-v2.3.14.zip" -Force
 ```
 
 The ZIP should contain the application root directly, not a nested parent folder.
@@ -209,7 +215,7 @@ updater.json
 Wrong:
 
 ```text
-GameHelper-v2.3.13/GameHelper.exe
+GameHelper-v2.3.14/GameHelper.exe
 ```
 
 ## Publish A GitHub Release
@@ -217,9 +223,9 @@ GameHelper-v2.3.13/GameHelper.exe
 Example using GitHub CLI:
 
 ```powershell
-gh release create v2.3.13 artifacts\GameHelper-v2.3.13.zip `
+gh release create v2.3.14 artifacts\GameHelper-v2.3.14.zip `
   -R Breakinsoul/GameHelper2-current `
-  --title "v2.3.13 current release" `
+  --title "v2.3.14 current release" `
   --notes "Update offsets for the current game patch." `
   --latest
 ```
@@ -233,7 +239,7 @@ The updater reads the latest non-prerelease GitHub release and downloads the fir
 ## Test Updating
 
 1. Install or run an older release, for example `v2.3.5`.
-2. Publish a newer release, for example `v2.3.13`.
+2. Publish a newer release, for example `v2.3.14`.
 3. Start the older app through `Launcher.exe`.
 4. The launcher checks GitHub Releases.
 5. If the latest release version is newer, the launcher downloads the ZIP.
@@ -268,7 +274,7 @@ Breakinsoul/GameHelper2-current
 Also check that the newest GitHub Release is marked as latest and has a ZIP asset named like:
 
 ```text
-GameHelper-v2.3.13.zip
+GameHelper-v2.3.14.zip
 ```
 
 ### GitHub shows old source code

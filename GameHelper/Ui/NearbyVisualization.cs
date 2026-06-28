@@ -74,6 +74,11 @@ namespace GameHelper.Ui
 
         private static void DrawNearbyRange(int totalLines, int nearbyMeaning, float gX, float gY, float height, uint color)
         {
+            if (!float.IsFinite(gX) || !float.IsFinite(gY) || !float.IsFinite(height))
+            {
+                return;
+            }
+
             var gridToWorld = TileStructure.TileToWorldConversion / TileStructure.TileToGridConversion;
             Span<Vector2> points = new Vector2[totalLines];
             var gap = 360f / totalLines;
@@ -88,6 +93,10 @@ namespace GameHelper.Ui
                 catch { }
 
                 points[i] = Core.States.InGameStateObject.CurrentWorldInstance.WorldToScreen(points[i] * gridToWorld, height);
+                if (!PluginRuntimeHelper.IsSafeScreenPosition(points[i]))
+                {
+                    return;
+                }
             }
 
             ImGui.GetBackgroundDrawList().AddPolyline(ref points[0], totalLines, color, ImDrawFlags.Closed, 5);

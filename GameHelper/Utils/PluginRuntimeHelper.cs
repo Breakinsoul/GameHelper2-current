@@ -5,6 +5,7 @@ namespace GameHelper.Utils
     using System.Numerics;
     using GameHelper.RemoteObjects.Components;
     using GameHelper.RemoteObjects.States.InGameStateObjects;
+    using GameOffsets.Natives;
 
     public static class PluginRuntimeHelper
     {
@@ -70,6 +71,12 @@ namespace GameHelper.Utils
             bool enabled,
             int interpolationRate)
         {
+            if (!IsSafeScreenPosition(currentPosition))
+            {
+                positionCache.Remove(entityId);
+                return Vector2.Zero;
+            }
+
             if (!enabled)
             {
                 positionCache.Remove(entityId);
@@ -79,7 +86,14 @@ namespace GameHelper.Utils
             var clampedRate = Math.Clamp(interpolationRate, 1, 1000) / 1000f;
             if (positionCache.TryGetValue(entityId, out var previousPosition))
             {
-                currentPosition = MathHelper.Lerp(previousPosition, currentPosition, clampedRate);
+                currentPosition = IsSafeScreenPosition(previousPosition)
+                    ? MathHelper.Lerp(previousPosition, currentPosition, clampedRate)
+                    : currentPosition;
+                if (!IsSafeScreenPosition(currentPosition))
+                {
+                    positionCache.Remove(entityId);
+                    return Vector2.Zero;
+                }
             }
 
             positionCache[entityId] = currentPosition;
@@ -137,17 +151,50 @@ namespace GameHelper.Utils
 
             render = foundRender;
             var worldPosition = render.WorldPosition;
+            if (!IsFinite(worldPosition) || !IsFinite(render.ModelBounds))
+            {
+                return false;
+            }
+
             worldPosition.Z += zOffset;
             screen = Core.States.InGameStateObject.CurrentWorldInstance.WorldToScreen(worldPosition, worldPosition.Z);
-            return true;
+            return IsSafeScreenPosition(screen);
         }
 
         public static bool IsOutsideScreen(Vector2 location, Vector2 margin)
         {
+            if (!IsSafeScreenPosition(location) || !IsFinite(margin))
+            {
+                return true;
+            }
+
             return location.X < -margin.X ||
                 location.Y < -margin.Y ||
                 location.X > Core.Process.WindowArea.Width + margin.X ||
                 location.Y > Core.Process.WindowArea.Height + margin.Y;
+        }
+
+        public static bool IsFinite(Vector2 value)
+        {
+            return float.IsFinite(value.X) && float.IsFinite(value.Y);
+        }
+
+        public static bool IsFinite(Vector3 value)
+        {
+            return float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
+        }
+
+        public static bool IsFinite(StdTuple3D<float> value)
+        {
+            return float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
+        }
+
+        public static bool IsSafeScreenPosition(Vector2 value)
+        {
+            const float MaxDrawCoordinate = 100000f;
+            return IsFinite(value) &&
+                MathF.Abs(value.X) <= MaxDrawCoordinate &&
+                MathF.Abs(value.Y) <= MaxDrawCoordinate;
         }
     }
 }

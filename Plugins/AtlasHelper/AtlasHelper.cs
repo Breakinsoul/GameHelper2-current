@@ -215,6 +215,12 @@ namespace AtlasHelper
                     continue;
                 }
 
+                if (!PluginRuntimeHelper.IsSafeScreenPosition(item.ScreenPosition) ||
+                    !PluginRuntimeHelper.IsFinite(item.ScreenSize))
+                {
+                    continue;
+                }
+
                 this.liveNodes.Add(new AtlasLiveNode(
                     item.Id,
                     item.ScreenPosition,
@@ -250,8 +256,14 @@ namespace AtlasHelper
             foreach (var node in this.liveNodes)
             {
                 var center = node.Center + this.Settings.AnchorNudge;
+                if (!PluginRuntimeHelper.IsSafeScreenPosition(center))
+                {
+                    continue;
+                }
+
+                var radius = Math.Clamp(this.Settings.LiveNodeRadius, 1f, 24f);
                 var color = node.IsAccessible ? accessibleColor : hiddenColor;
-                draw.AddCircleFilled(center, this.Settings.LiveNodeRadius, color, 16);
+                draw.AddCircleFilled(center, radius, color, 16);
 
                 if (this.IsMouseOverLiveNode(node, center))
                 {
@@ -287,7 +299,17 @@ namespace AtlasHelper
         private bool IsMouseOverLiveNode(AtlasLiveNode node, Vector2 center)
         {
             var mouse = ImGui.GetIO().MousePos;
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(mouse))
+            {
+                return false;
+            }
+
             var radius = MathF.Max(this.Settings.LiveNodeRadius + 8f, MathF.Max(node.Size.X, node.Size.Y) * 0.55f);
+            if (!float.IsFinite(radius))
+            {
+                return false;
+            }
+
             return Vector2.Distance(mouse, center) <= radius;
         }
 
@@ -306,10 +328,26 @@ namespace AtlasHelper
             }
 
             var mouse = ImGui.GetIO().MousePos;
-            var nearest = this.liveNodes
+            if (!PluginRuntimeHelper.IsSafeScreenPosition(mouse))
+            {
+                this.captureStatus = "Atlas node capture skipped: mouse position is invalid.";
+                return;
+            }
+
+            var validNodes = this.liveNodes
+                .Where(node => PluginRuntimeHelper.IsSafeScreenPosition(node.Center + this.Settings.AnchorNudge))
+                .ToArray();
+            if (validNodes.Length == 0)
+            {
+                this.captureStatus = "Atlas node capture skipped: no valid live node positions.";
+                return;
+            }
+
+            var nearest = validNodes
                 .Select(node => (Node: node, Distance: Vector2.Distance(node.Center + this.Settings.AnchorNudge, mouse)))
                 .OrderBy(pair => pair.Distance)
                 .First();
+
             if (!force && nearest.Distance > this.Settings.CaptureRadius)
             {
                 this.captureStatus = $"Atlas node capture skipped: nearest node is {nearest.Distance:0.#} px away.";
