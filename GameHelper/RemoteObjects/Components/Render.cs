@@ -48,6 +48,7 @@ namespace GameHelper.RemoteObjects.Components
 
         private static int worldPositionOffset = 0x138;
         private static int terrainHeightOffset = 0x1AC;
+        private static readonly object OffsetSelectionLock = new();
 
         private GridPos2DSnap gridSnap = new(0f, 0f);
 
@@ -90,9 +91,9 @@ namespace GameHelper.RemoteObjects.Components
         /// </summary>
         public float TerrainHeight { get; private set; }
 
-        public static int TerrainHeightOffset => terrainHeightOffset;
+        public static int TerrainHeightOffset => System.Threading.Volatile.Read(ref terrainHeightOffset);
 
-        public static int WorldPositionOffset => worldPositionOffset;
+        public static int WorldPositionOffset => System.Threading.Volatile.Read(ref worldPositionOffset);
 
         public static int[] TerrainHeightCandidates => TerrainHeightOffsetCandidates.ToArray();
 
@@ -104,14 +105,14 @@ namespace GameHelper.RemoteObjects.Components
             base.ToImGui();
             ImGui.Text($"Grid Position: {this.GridPosition}");
             ImGui.Text($"World Position: {this.WorldPosition}");
-            ImGui.Text($"World Position Offset: 0x{worldPositionOffset:X}");
+            ImGui.Text($"World Position Offset: 0x{WorldPositionOffset:X}");
             foreach (var candidate in this.GetWorldPositionDiagnostics())
             {
                 ImGui.Text($"  0x{candidate.Offset:X}: {candidate.Value}, ok={candidate.Plausible}");
             }
 
             ImGui.Text($"Terrain Height (Z-Axis): {this.TerrainHeight}");
-            ImGui.Text($"Terrain Height Offset: 0x{terrainHeightOffset:X}");
+            ImGui.Text($"Terrain Height Offset: 0x{TerrainHeightOffset:X}");
             foreach (var candidate in this.GetTerrainHeightDiagnostics())
             {
                 ImGui.Text($"  0x{candidate.Offset:X}: {candidate.Value:0.####}, expected={candidate.Expected?.ToString("0.####") ?? "n/a"}, delta={candidate.Delta:0.####}, ok={candidate.Plausible}");
@@ -161,7 +162,7 @@ namespace GameHelper.RemoteObjects.Components
             var header = reader.ReadMemory<ComponentHeader>(this.Address);
             this.OwnerEntityAddress = header.EntityPtr;
             this.WorldPosition = this.ResolveWorldPosition();
-            this.ModelBounds = ReadWorldPositionAtOffset(reader, worldPositionOffset + 0x0C);
+            this.ModelBounds = ReadWorldPositionAtOffset(reader, WorldPositionOffset + 0x0C);
 
             var newX = this.WorldPosition.X / WorldToGridRatio;
             var newY = this.WorldPosition.Y / WorldToGridRatio;
@@ -172,27 +173,35 @@ namespace GameHelper.RemoteObjects.Components
         private StdTuple3D<float> ResolveWorldPosition()
         {
             var reader = Core.Process.Handle;
-            var cached = ReadWorldPositionAtOffset(reader, worldPositionOffset);
+            var cached = ReadWorldPositionAtOffset(reader, WorldPositionOffset);
             if (IsWorldPositionPlausible(cached))
             {
                 return cached;
             }
 
-            foreach (var offset in WorldPositionOffsetCandidates)
+            lock (OffsetSelectionLock)
             {
-                var value = ReadWorldPositionAtOffset(reader, offset);
-                if (!IsWorldPositionPlausible(value))
+                cached = ReadWorldPositionAtOffset(reader, WorldPositionOffset);
+                if (IsWorldPositionPlausible(cached))
                 {
-                    continue;
+                    return cached;
                 }
 
-                if (offset != worldPositionOffset)
+                foreach (var offset in WorldPositionOffsetCandidates)
                 {
-                    worldPositionOffset = offset;
-                    Console.WriteLine($"[Render] Auto-selected WorldPosition offset 0x{worldPositionOffset:X}.");
-                }
+                    var value = ReadWorldPositionAtOffset(reader, offset);
+                    if (!IsWorldPositionPlausible(value))
+                    {
+                        continue;
+                    }
 
-                return value;
+                    if (offset != WorldPositionOffset)
+                    {
+                        System.Threading.Volatile.Write(ref worldPositionOffset, offset);
+                    }
+
+                    return value;
+                }
             }
 
             return cached;
@@ -202,38 +211,48 @@ namespace GameHelper.RemoteObjects.Components
         {
             var reader = Core.Process.Handle;
             var expected = TryGetTerrainHeightFromGrid(gridX, gridY);
-            var cached = ReadTerrainHeightAtOffset(reader, terrainHeightOffset);
+            var cached = ReadTerrainHeightAtOffset(reader, TerrainHeightOffset);
             if (expected == null)
             {
                 return cached;
             }
 
-            var bestOffset = terrainHeightOffset;
-            var bestValue = cached;
-            var bestDelta = float.IsFinite(cached) ? Math.Abs(cached - expected.Value) : float.MaxValue;
-
-            foreach (var offset in TerrainHeightOffsetCandidates)
+            if (IsTerrainHeightPlausible(cached, expected.Value))
             {
-                var value = ReadTerrainHeightAtOffset(reader, offset);
-                var delta = Math.Abs(value - expected.Value);
-                if (float.IsFinite(value) && delta < bestDelta)
+                return cached;
+            }
+
+            lock (OffsetSelectionLock)
+            {
+                cached = ReadTerrainHeightAtOffset(reader, TerrainHeightOffset);
+                if (IsTerrainHeightPlausible(cached, expected.Value))
                 {
-                    bestOffset = offset;
-                    bestValue = value;
-                    bestDelta = delta;
+                    return cached;
                 }
-            }
 
-            var currentDelta = float.IsFinite(cached) ? Math.Abs(cached - expected.Value) : float.MaxValue;
-            if (bestOffset != terrainHeightOffset &&
-                IsTerrainHeightPlausible(bestValue, expected.Value) &&
-                bestDelta + 1f < currentDelta)
-            {
-                terrainHeightOffset = bestOffset;
-                Console.WriteLine($"[Render] Auto-selected TerrainHeight offset 0x{terrainHeightOffset:X}.");
-            }
+                var bestOffset = TerrainHeightOffset;
+                var bestValue = cached;
+                var bestDelta = float.IsFinite(cached) ? Math.Abs(cached - expected.Value) : float.MaxValue;
 
-            return bestValue;
+                foreach (var offset in TerrainHeightOffsetCandidates)
+                {
+                    var value = ReadTerrainHeightAtOffset(reader, offset);
+                    var delta = Math.Abs(value - expected.Value);
+                    if (float.IsFinite(value) && delta < bestDelta)
+                    {
+                        bestOffset = offset;
+                        bestValue = value;
+                        bestDelta = delta;
+                    }
+                }
+
+                if (bestOffset != TerrainHeightOffset && IsTerrainHeightPlausible(bestValue, expected.Value))
+                {
+                    System.Threading.Volatile.Write(ref terrainHeightOffset, bestOffset);
+                }
+
+                return bestValue;
+            }
         }
 
         private float ReadTerrainHeightAtOffset(SafeMemoryHandle reader, int offset)
